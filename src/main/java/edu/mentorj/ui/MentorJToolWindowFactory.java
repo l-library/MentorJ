@@ -71,7 +71,8 @@ public final class MentorJToolWindowFactory implements ToolWindowFactory, DumbAw
             text.append("\n\n").append(MentorJBundle.message("toolwindow.generalKnowledgeNotice"));
         }
         for (Citation citation : response.citations()) {
-            text.append('\n').append(MentorJBundle.message("toolwindow.citation", citation.document(), citation.pageOrScope()));
+            text.append('\n').append(MentorJBundle.message(
+                "toolwindow.citation", citation.document(), citation.pageOrScope()));
         }
         return text.toString();
     }

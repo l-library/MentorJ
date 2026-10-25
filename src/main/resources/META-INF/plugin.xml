@@ -8,13 +8,16 @@
     <name>MentorJ</name>
 
     <!-- A displayed Vendor name or Organization ID displayed on the Plugins Page. -->
-    <vendor url="https://www.yourcompany.com">YourCompany</vendor>
+    <vendor url="https://github.com/l-library">l-library</vendor>
 
     <!-- Description of the plugin displayed on the Plugin Page and IDE Plugin Manager.
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
-        Enter short description for your plugin here.<br>
-        <em>most HTML tags may be used</em>
+        MentorJ is a teaching assistant plugin for the Java Enterprise Application Development course,
+        built for Java learners working in IntelliJ IDEA. It lives in a side tool window as an AI agent
+        and provides course Q&amp;A grounded in course materials with cited sources, context-aware
+        programming assistance, JUnit test generation from natural-language requirements, and
+        Conventional Commits style git commit message generation.
         ]]></description>
 
     <!-- Product and plugin compatibility requirements.
