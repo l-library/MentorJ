@@ -24,6 +24,7 @@ MentorJ 是一个 **IntelliJ Platform 插件**，使用 **Java 21** 开发，Gra
 ├── gradle.properties           group=edu.mentorj、version、configuration/build cache 开关
 ├── .editorconfig               机器强制的编辑格式规则
 ├── .gitattributes              机器强制的换行规则
+├── API.md                      模块协作契约（三个小组的接口约定）
 ├── CHANGELOG.md                变更日志（Keep a Changelog 格式）
 └── README.md                   产品背景与功能规划
 ```

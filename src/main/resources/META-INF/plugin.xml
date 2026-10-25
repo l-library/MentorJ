@@ -22,9 +22,30 @@
     <depends>com.intellij.modules.platform</depends>
 
 
+    <!-- 文案 bundle，action 的 text/description 从这里取。 -->
+    <resource-bundle>messages.MentorJBundle</resource-bundle>
+
     <!-- Extensions defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
+        <!-- 侧边栏 AI Agent 界面（界面组）：与助教对话的 tool window。 -->
+        <toolWindow id="MentorJ" anchor="right" factoryClass="edu.mentorj.ui.MentorJToolWindowFactory"/>
     </extensions>
+
+    <!-- 智能操作入口（界面组）。 -->
+    <actions>
+        <!-- 就选中代码提问：编辑器右键菜单入口。文案取自 bundle 的 action.<id>.text/.description。 -->
+        <action id="edu.mentorj.AskCode" class="edu.mentorj.ui.AskCodeAction">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <!-- 生成单元测试：编辑器右键菜单入口。 -->
+        <action id="edu.mentorj.GenerateUnitTest" class="edu.mentorj.ui.GenerateUnitTestAction">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <!-- 生成 Git 提交消息：暂挂 Tools 菜单，后续可移到 commit 对话框。 -->
+        <action id="edu.mentorj.GenerateCommitMessage" class="edu.mentorj.ui.GenerateCommitMessageAction">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
 
 </idea-plugin>

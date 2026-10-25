@@ -25,6 +25,7 @@ MentorJ is an IntelliJ Platform plugin written in Java 21 and built with Gradle 
 ├── gradle.properties           group=edu.mentorj, version, configuration/build cache flags
 ├── .editorconfig               Editor rules enforced by tooling
 ├── .gitattributes              Line-ending rules enforced by tooling
+├── API.md                      Module collaboration contract for the three teams
 ├── CHANGELOG.md                Changelog in Keep a Changelog format
 └── README.md                   Product background
 ```
