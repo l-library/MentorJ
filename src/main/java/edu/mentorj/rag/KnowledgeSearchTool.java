@@ -1,7 +1,6 @@
 package edu.mentorj.rag;
 
 import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.api.KnowledgeChunk;
