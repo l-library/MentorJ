@@ -27,4 +27,4 @@ MentorJ 是《Java 企业级应用开发》课程的助教插件，运行在 Int
 ./gradlew check   # 运行测试
 ```
 
-目录结构、开发环境、Git 协作与编码约定见 [CONVENTION.md](CONVENTION.md)。
+目录结构、开发环境、Git 协作与编码约定见 [CONVENTION.md](CONVENTION.md)，三个小组的模块协作接口约定见 [API.md](API.md)。
