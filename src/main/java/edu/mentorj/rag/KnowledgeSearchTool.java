@@ -2,6 +2,7 @@ package edu.mentorj.rag;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import edu.mentorj.api.Citation;
 import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
@@ -31,19 +32,34 @@ public final class KnowledgeSearchTool implements Tool {
 
     @Override
     public String execute(String argumentsJson) {
+        return executeWithSources(argumentsJson).text();
+    }
+
+    @Override
+    public ExecutionResult executeWithSources(String argumentsJson) {
         JsonElement arguments = JsonParser.parseString(argumentsJson == null ? "{}" : argumentsJson);
         JsonElement query = arguments.isJsonObject() ? arguments.getAsJsonObject().get("query") : null;
-        if (query == null || !query.isJsonPrimitive()) {
-            return "invalid arguments: missing \"query\"";
+        if (query == null || !query.isJsonPrimitive() || !query.getAsJsonPrimitive().isString()
+                || query.getAsString().isBlank() || query.getAsString().length() > 4000) {
+            return new ExecutionResult("tool_error: query must be a nonempty string of at most 4000 characters",
+                    List.of());
         }
-        List<KnowledgeChunk> chunks = knowledgeBase.retrieve(query.getAsString(), TOP_K);
+        List<KnowledgeChunk> chunks = knowledgeBase.retrieve(query.getAsString().strip(), TOP_K).stream()
+                .limit(TOP_K).toList();
         if (chunks.isEmpty()) {
-            return "no results";
+            return new ExecutionResult("no results", List.of());
         }
         StringBuilder result = new StringBuilder();
         for (KnowledgeChunk chunk : chunks) {
+            if (chunk.text() == null || chunk.text().isBlank() || chunk.document() == null || chunk.document().isBlank()
+                    || chunk.pageOrScope() == null || chunk.pageOrScope().isBlank()) {
+                return new ExecutionResult("tool_error: course material has incomplete content or source metadata",
+                        List.of());
+            }
             result.append("[%s，页码/范围: %s]\n%s\n\n".formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
         }
-        return result.toString().trim();
+        List<Citation> citations = chunks.stream().map(c -> new Citation(c.document(), c.pageOrScope()))
+                .distinct().toList();
+        return new ExecutionResult(result.toString().strip(), citations);
     }
 }

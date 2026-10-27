@@ -41,7 +41,9 @@ src/main/java/edu/mentorj/
 │   ├── AgentLoop.java          AgentService 实现：检索 → 提示词 → LLM → 工具循环
 │   ├── SystemPromptBuilder.java 系统提示词（助教身份 + 引用规则 + 分操作指令）
 │   ├── ToolRegistry.java       工具注册与调用
-│   └── StubLlmService.java     LLM 占位实现，接入真实 API 后删除
+│   ├── ChatCompletionsLlmService.java  文本生成与原生工具调用接入
+│   ├── LlmSettings.java        本地环境变量配置
+│   └── LlmException.java       可展示的配置与调用错误
 ├── rag/                        RAG 组：文档处理、知识库、检索工具
 │   ├── DocumentProcessor.java  课程材料解析与切块（保留页码/范围）
 │   ├── KnowledgeSearchTool.java 检索工具（实现 api.Tool，供 agent 工具调用）
@@ -101,8 +103,33 @@ public interface LlmService {
 public interface Tool {
     LlmService.ToolSpec spec();          // 工具名、描述、参数 JSON Schema
     String execute(String argumentsJson); // 返回文本结果，回填给 LLM
+    // 默认包装 execute，旧实现无需修改；检索工具覆盖此方法提供真实来源。
+    default ExecutionResult executeWithSources(String argumentsJson);
+    record ExecutionResult(String text, List<Citation> citations) {}
 }
 ```
+
+### 2.3 本地 Agent 分支的兼容扩展（供三方联调评审）
+
+本分支按 Agent 完善任务实现以下增量，保留旧构造器和工具方法；合并共享契约前仍需三方评审。
+
+- `Message(role, content, toolCalls, toolCallId, reasoningContent)`：assistant 原样保留调用列表和
+  服务返回的 `reasoning_content`；tool 消息用 `toolCallId` 对应调用。普通消息继续使用双参数构造器。
+  使用 `Message.assistant(Result)` 和 `Message.tool(callId, text)` 回填完整协议数据。
+  旧 `Message.tool(text)` 保留源码兼容，但缺少 ID，真实适配器会拒绝发送。
+- `Result(content, toolCalls, reasoningContent)`：保留双参数构造器；无工具调用必须有非空正文。
+  `reasoningContent` 仅供协议回填，不展示给用户。
+- `Request`、`Message`、`Result`、`ExecutionResult` 对列表取不可变副本，列表不得为 null。
+- `Tool.executeWithSources` 返回正文及结构化来源；仅返回字符串的旧工具继续工作，但不产生引用。
+  工具负责校验自己的参数字段。失败与无结果的输出不携带来源。
+- 最终 `AgentResponse.citations` 合并初次检索及成功工具检索提供给模型的来源，按出现顺序去重。
+  不从模型生成的文字提取来源，不伪造文档或页码。错误回答不附课程引用或通用知识声明。
+- 文本回答因长度截断但已有正文时，`text` 保留正文并在开头标注“回答未完成”，仍附已提供的来源。
+  无正文或存在被截断的工具调用时返回错误说明，且不执行该轮工具；不改变共享数据类型。
+- Agent 每次请求独立保存上下文，最多执行 3 轮工具，每轮最多 8 次调用，最多请求模型 4 次。
+  最后一轮不再提供工具。提交消息生成仅使用 staged diff 和用户要求，不检索课程材料。
+  用户上下文限 60,000 字符，累计对话限 120,000 字符，单次工具输出限 20,000 字符；超限明确报错。
+  这些是本插件的资源上限，不代表服务商 token 上限。
 
 ## 3. 关键数据流
 
@@ -132,5 +159,9 @@ public interface Tool {
 ## 6. 待定事项
 
 - 创意智能操作（`CREATIVE`）的具体方案：待定，枚举与请求字段已预留。
-- LLM 服务供应商 / 模型、embedding 与向量检索方案：待 agent 核心组与 RAG 组确定后更新本文件。
+- LLM 服务供应商：同济 AI 服务平台，默认 Base URL 为 `https://agi.tongji.edu.cn/v1`，
+  模型为 `DeepSeek-V4.1-Flash`。API Key 通过本地环境变量配置，地址和模型可覆盖，见 README。
+- 原生工具调用：本地适配器与循环已实现兼容协议，使用模拟 HTTP 服务验证；
+  同济网关对所选模型的工具支持仍需带真实 Key 联调，不能由文本调用示例推定。
+- embedding 与向量检索方案：待 RAG 组确定。
 - 回答的流式输出：本期不做，`AgentService` 为一次性返回。
