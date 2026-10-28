@@ -32,20 +32,25 @@ src/main/java/edu/mentorj/
 │   ├── AgentResponse.java      一次回答（正文 + 引用 + 免责标志）
 │   ├── AgentService.java       agent 入口接口
 │   ├── Citation.java           来源引用（文档 + 页码/范围）
+│   ├── DocumentLibrary.java    文档导入 / 清空 / 索引统计（界面组调用，RAG 组实现）
 │   ├── EditorContext.java      编辑器上下文（文件、源码、选中代码）
+│   ├── ImportResult.java       一次导入的结果（已索引文档、知识块数、失败清单）
 │   ├── KnowledgeBase.java      知识库检索接口
 │   ├── KnowledgeChunk.java     知识块（内容 + 来源 + 页码/范围 + 分数）
 │   ├── LlmService.java         LLM 调用接口（含消息 / 工具调用数据类型）
+│   ├── ProgressListener.java   导入进度回调（纯 Java，不引平台类型）
+│   ├── Statistics.java         索引现状（文档清单、知识块数、索引时间）
 │   └── Tool.java               agent 可调用的工具接口
 ├── agent/                      agent 核心组：循环、系统提示词、工具调用、LLM 接入
 │   ├── AgentLoop.java          AgentService 实现：检索 → 提示词 → LLM → 工具循环
 │   ├── SystemPromptBuilder.java 系统提示词（助教身份 + 引用规则 + 分操作指令）
 │   ├── ToolRegistry.java       工具注册与调用
 │   └── StubLlmService.java     LLM 占位实现，接入真实 API 后删除
-├── rag/                        RAG 组：文档处理、知识库、检索工具
+├── rag/                        RAG 组：文档处理、知识库、检索工具、导入服务
 │   ├── DocumentProcessor.java  课程材料解析与切块（保留页码/范围）
 │   ├── KnowledgeSearchTool.java 检索工具（实现 api.Tool，供 agent 工具调用）
-│   └── RagKnowledgeBase.java   KnowledgeBase 实现
+│   ├── RagDocumentLibrary.java DocumentLibrary 实现：导入 → 切块 → 建索引 → 落盘
+│   └── RagKnowledgeBase.java   KnowledgeBase 实现（BM25 + 可选 embedding 混合检索）
 ├── ui/                         界面组：侧边栏、右键菜单、智能操作入口
 │   ├── AskCodeAction.java      编辑器右键：就选中代码提问
 │   ├── EditorContexts.java     编辑器上下文采集
@@ -63,11 +68,14 @@ src/main/java/edu/mentorj/
 | 类型 | 字段 | 语义 |
 | --- | --- | --- |
 | `AgentAction` | `ASK`、`GENERATE_UNIT_TEST`、`GENERATE_COMMIT_MESSAGE`、`CREATIVE` | 一次请求要做的事；`CREATIVE` 为创意智能操作预留 |
-| `EditorContext` | `filePath`、`sourceCode`、`selectedCode` | 界面组采集；任何字段可为 `null`，表示不适用 / 未提供 |
 | `AgentRequest` | `action`、`userInput`、`editorContext`、`stagedDiff` | 见下方「各操作对字段的要求」 |
-| `Citation` | `document`、`pageOrScope` | 一条来源引用：来源文档 + 页码或范围 |
 | `AgentResponse` | `text`、`citations`、`generalKnowledgeOnly` | `text` 为回答正文；`citations` 为提供给 LLM 的知识块来源；`generalKnowledgeOnly` 为 `true` 表示没有检索到课程材料 |
+| `Citation` | `document`、`pageOrScope` | 一条来源引用：来源文档 + 页码或范围 |
+| `EditorContext` | `filePath`、`sourceCode`、`selectedCode` | 界面组采集；任何字段可为 `null`，表示不适用 / 未提供 |
+| `ImportResult` | `documents`、`chunks`、`failures` | 一次导入的结果：已索引的文档名、知识块总数、失败原因（每条形如 `文件名: 原因`） |
 | `KnowledgeChunk` | `text`、`document`、`pageOrScope`、`score` | 一个知识块及其来源，`score` 越大越相关 |
+| `ProgressListener` | `onProgress(done, total, message)` | 导入进度回调；在导入线程上被调用，界面组自行切回 EDT |
+| `Statistics` | `documents`、`chunks`、`indexedAt` | 索引现状；`indexedAt` 为 `null` 表示尚未导入 |
 
 各操作对 `AgentRequest` 字段的要求：
 
@@ -91,6 +99,14 @@ public interface KnowledgeBase {
     List<KnowledgeChunk> retrieve(String query, int topK);
 }
 
+// RAG 组实现，界面组调用：导入课程材料、清空索引、查询索引现状。
+// 阻塞方法，界面组必须在后台线程调用；与 retrieve 可并发。
+public interface DocumentLibrary {
+    ImportResult importDocuments(List<Path> documents, ProgressListener progress);
+    void clear();
+    Statistics statistics();
+}
+
 // agent 核心组实现真实版本（LLM 接入）；Request 携带系统提示词、消息与可用工具。
 public interface LlmService {
     Result complete(Request request);
@@ -104,8 +120,13 @@ public interface Tool {
 }
 ```
 
+`importDocuments` 的语义是**全量重建**：清空现有索引 → 逐个解析传入的文档 → 切块 → 建索引 → 落盘。只支持 PDF；不支持的格式与解析失败都进 `failures`，不抛异常、不影响其余文档。`progress` 可为 `null`。索引持久化在项目的 `.idea/mentorj-index.json`，重启 IDE 后自动加载，不要求原文档仍然存在。
+
+`DocumentLibrary` 由 RAG 组新增，经三方确认后界面组方可依赖。
+
 ## 3. 关键数据流
 
+0. **导入课程材料**：界面组选文件 → `DocumentLibrary.importDocuments(paths, progress)`（后台线程）→ RAG 组解析 PDF、按页切块、建索引、写 `.idea/mentorj-index.json` → 返回 `ImportResult` → 界面组展示已索引文档数 / 知识块数与失败清单。
 1. **侧边栏问答**：界面组收问题 → `AgentService.respond(ASK)` → agent 核心组：`KnowledgeBase.retrieve` 检索知识块 → 组装系统提示词（含引用规则）与上下文 → `LlmService`（必要时走工具循环）→ `AgentResponse` → 界面组展示正文 + 引用 / 免责声明。
 2. **右键就选中代码提问**：界面组用 `EditorContexts` 采集 `EditorContext` → 同 1（`ASK`）。
 3. **单测生成**：界面组弹文本输入框收集自然语言场景 → `respond(GENERATE_UNIT_TEST)` → agent 核心组按场景 + 上下文代码生成 JUnit 测试类 → 界面组展示。
@@ -118,6 +139,7 @@ public interface Tool {
 - **引用与免责声明**：检索到课程材料时 `citations` 必须给出 `document` + `pageOrScope`；检索不到时 `generalKnowledgeOnly` 必须为 `true`，界面组必须显式声明“回答仅基于通用知识，未引用课程材料”（如 “Response is based on general knowledge; no specific course material is referenced”）。系统提示词里同步约束 LLM 行文引用来源。
 - **线程**：`AgentService.respond` 可能长时间阻塞，界面组一律放后台线程执行，只在更新 UI 时回到 EDT。
 - **空值**：契约里的 `null` 只表示“不适用 / 未提供”；`List` 一律返回空表而不是 `null`。
+- **无索引**：没导入课程材料时 `retrieve` 返回空表，`AgentResponse.generalKnowledgeOnly` 为 `true`，界面组展示通用知识声明。
 - **文案**：所有 UI 文案进 `src/main/resources/messages/MentorJBundle.properties`，用 `MentorJBundle.message(key, ...)` 取，不硬编码。
 - **注册**：扩展点 / action / 服务注册在 `plugin.xml`（或平台注解），每条注册加注释说明用途。
 - **契约变更流程**：先改本文件 → 三方确认 → 再改代码 → 同一提交或紧随的提交里保持文档与实现一致。
@@ -127,10 +149,12 @@ public interface Tool {
 - [ ] `./gradlew build` 通过（改动 plugin.xml 或依赖时加跑 `./gradlew verifyPlugin`）
 - [ ] `./gradlew runIde`：侧边栏能看到 MentorJ tool window；编辑器右键菜单有两个智能操作入口
 - [ ] 提问流程：有问题 + 有检索结果时展示引用（文档 + 页码/范围）；无检索结果时展示通用知识声明
+- [ ] 导入流程：导入课件后返回统计；重启 IDE 后仍能检索到带页码的引用；导入非 PDF 文件时展示失败原因而非静默失败
 - [ ] 三个智能操作的请求字段符合「各操作对字段的要求」
 
 ## 6. 待定事项
 
 - 创意智能操作（`CREATIVE`）的具体方案：待定，枚举与请求字段已预留。
-- LLM 服务供应商 / 模型、embedding 与向量检索方案：待 agent 核心组与 RAG 组确定后更新本文件。
+- LLM 服务供应商 / 模型：待 agent 核心组确定。
+- 检索方案（已定）：BM25 词法检索 + embedding 语义检索，两路排名用 RRF 融合；embedding 走同济 AGI 的 `Qwen3-Embedding`（OpenAI 兼容 `/v1/embeddings`，2560 维），key 从环境变量 `MENTORJ_LLM_API_KEY` 读取。embedding 不可用时自动降级为纯 BM25，引用仍然有效。
 - 回答的流式输出：本期不做，`AgentService` 为一次性返回。
