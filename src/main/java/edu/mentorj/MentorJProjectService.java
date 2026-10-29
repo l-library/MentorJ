@@ -8,6 +8,7 @@ import edu.mentorj.agent.SystemPromptBuilder;
 import edu.mentorj.agent.ToolRegistry;
 import edu.mentorj.api.AgentService;
 import edu.mentorj.api.DocumentLibrary;
+import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.rag.DocumentProcessor;
 import edu.mentorj.rag.KnowledgeSearchTool;
 import edu.mentorj.rag.RagDocumentLibrary;
@@ -34,10 +35,12 @@ public final class MentorJProjectService {
 
     private final AgentService agentService;
     private final DocumentLibrary documentLibrary;
+    private final KnowledgeBase knowledgeBase;
 
     public MentorJProjectService(@NotNull Project project) {
         RagKnowledgeBase knowledgeBase =
                 new RagKnowledgeBase(indexFile(project), TongjiEmbeddingClient.fromEnvironment());
+        this.knowledgeBase = knowledgeBase;
         this.documentLibrary = new RagDocumentLibrary(knowledgeBase, new DocumentProcessor());
 
         ToolRegistry toolRegistry = new ToolRegistry();
@@ -52,6 +55,11 @@ public final class MentorJProjectService {
 
     public DocumentLibrary documentLibrary() {
         return documentLibrary;
+    }
+
+    /** 检索入口，供不经过 LLM 的调用方（例如检索质量诊断）使用。 */
+    public KnowledgeBase knowledgeBase() {
+        return knowledgeBase;
     }
 
     /**
