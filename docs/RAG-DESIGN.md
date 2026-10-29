@@ -108,10 +108,13 @@ PDF → 逐页抽文本 → 页脚/页眉清洗 → 页级切块（超长页二�
 | 维度 | 默认 2560，传 `dimensions` 可降到 512 |
 | 归一化 | 返回向量已 L2 归一化（实测模长 1.0），余弦相似度即点积 |
 | 并发上限 | 套餐限制 2 个并发请求，超出返回 HTTP 429 `并发请求数已达套餐上限` |
-| 批大小 | 8 条/请求约 5–7 秒；16 条约 42 秒；32 条 180 秒未返回 → **批大小固定 8** |
-| 全量导入估算 | 203 页 ÷ 8 × 约 6 秒 ÷ 2 并发 ≈ **80 秒** |
+| 批大小 | 8 条/请求。16 条约 42 秒、32 条 180 秒不返回（2560 维时测），所以固定 8 |
+| 全量导入（218 块） | **2.3 秒**（512 维、批 8、2 并发）；导入 10 个课件实际耗时以 `docs` 下实测为准 |
+| 单次查询向量化 | **30–55 毫秒**（512 维、单条） |
 
-因此导入实现为：批大小 8、最多 2 个并发请求、单请求超时 60 秒、429/5xx 退避重试 2 次；仍失败则记录 `failures` 并保留 BM25 可用。进度通过 `ProgressListener` 按“已处理页数 / 总页数”上报。
+因此导入实现为：批大小 8、最多 2 个并发请求（信号量，实测超了就是 429）、单请求超时 60 秒、429/5xx 退避重试 2 次。提问路径单独一条：**超时 5 秒**，失败即本次会话退回纯 BM25 并记日志，不再每次提问都去等超时。
+
+早期（2560 维）测出“8 条要 5–7 秒”，与后来 512 维的 2.3 秒/218 块差距很大：维度截断同时降低了存储与延迟，这是选 512 维的第二个理由。
 
 ## 5. 评测
 
@@ -120,17 +123,25 @@ PDF → 逐页抽文本 → 页脚/页眉清洗 → 页级切块（超长页二�
 - **单测**：BM25 与融合逻辑离线跑（不联网、确定性）；embedding 相关用环境变量 gate，缺失则跳过。
 - 数据进报告“RAG 的数据结构与检索”一节，也是演示时的证据。
 
-### 5.1 当前冒烟结果（BM25 单路，2026-10-30）
+### 5.1 冒烟结果与 BM25 / 混合对比（2026-10-30，218 块）
 
-全量 218 块上跑 13 条查询（golden 集之前的摸底，不是正式指标）：
+同一批查询分别跑纯 BM25 与混合（BM25 + Qwen3-Embedding + RRF），下表是逐条核对过页面内容后的结论：
 
-| 结果 | 数量 | 例子 |
-| --- | --- | --- |
-| top-1 正确 | 10 | `@BeforeEach` → Lec-3.4 p.4；`parameterized test with ValueSource` → Lec-3.4 p.6 |
-| top-1 偏了 | 1 | `how do I declare a class with fields and a constructor` → Lec-2 p.31（应指 p.2–3），这类词面重叠但语义发散的查询正是 embedding 要补的 |
-| 正确返回空 | 2 | `kafka partitioning strategy`、中文 `异常处理`（材料是英文） |
+| 查询 | 纯 BM25 top-1 | 混合 top-1 | 判断 |
+| --- | --- | --- | --- |
+| `what happens when an exception is not caught` | Lec-4 p.23（AI 开发） | Lec-3.1 p.3，且前三名全在异常课件 | **混合明显更好** |
+| `how do I declare a class with fields and a constructor` | Lec-2 p.31（匿名类） | 仍是 p.31，但 p.2/p.3 变成 p.12（Point 类：字段 + 构造器）、p.6（Constructors） | **混合改善名次，没修好 top-1** |
+| `how do I declare a generic type parameter` | 第 3 名跑到反射课件 | 前三名全在泛型课件 | 混合更聚焦 |
+| `What does StringBuilder do and why is it faster?` | 第 2 名 Lec-5 p.17（无关） | 第 2 名 Lec-1 p.31（Strings） | 混合更好 |
+| `What does @BeforeEach do?` | 只有 1 条命中 | 3 条命中，全在 Lec-3.4 | 混合覆盖更全 |
+| `what is the difference between an interface and an abstract class` | 与混合完全一致 | 一致 | 无差别 |
 
-`what is retrieval augmented generation` 的 top-1 落在作业说明 PDF：它确实含这个词，属于可辩护但不够理想的命中；也说明导入范围包含作业说明时，引用会指向它。
+两条必须记住的结论：
+
+1. **我在 Day 2 预测“embedding 能修好 constructor 那条”，没有兑现。** 它只把第 2、3 名换成了更相关的页，top-1 依旧是匿名类。词面重叠强的短查询，BM25 依然主导，这是 RRF 融合的正常表现，不能当作 bug 藏起来。
+2. **负例没有守住。** `how do I read a file line by line` 在全部课件里根本不存在（grep 确认无 `BufferedReader`/`readAllLines`/`FileReader`），但两路都返回了三条不相关页面，其中纯 BM25 的第一名是“Live Demo with TRAE”。这意味着**目前没有相关性闸门**：只要有一个词命中就会返回结果，agent 会拿无关页面当引用，作业要求里“检索不到就声明仅通用知识”那条实际上是失效的。
+
+第 2 点是 Day 5（golden 集）必须解决的第一件事：给检索加一道门槛（例如命中词覆盖率和/或归一化分数下限），让“材料里没有”能真的返回空表。
 
 ## 6. 接线与线程
 
