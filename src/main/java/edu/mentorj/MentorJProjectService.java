@@ -13,6 +13,7 @@ import edu.mentorj.rag.DocumentProcessor;
 import edu.mentorj.rag.KnowledgeSearchTool;
 import edu.mentorj.rag.RagDocumentLibrary;
 import edu.mentorj.rag.RagKnowledgeBase;
+import edu.mentorj.rag.TongjiEmbeddingClient;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -22,8 +23,9 @@ import java.nio.file.Path;
  * 组装点：唯一允许依赖各模块具体实现的地方，把知识库、工具与 agent 核心接起来。
  * 三个模块只通过 edu.mentorj.api 的接口协作，见 API.md。
  *
- * <p>构造函数只做接线，不读磁盘：项目级 service 在 EDT 上实例化，索引由
- * {@link RagKnowledgeBase} 在首次使用时加载。
+ * <p>构造函数只做接线，不读磁盘也不发请求：项目级 service 在 EDT 上实例化，索引由
+ * {@link RagKnowledgeBase} 在首次使用时加载。没有配置 {@code MENTORJ_LLM_API_KEY} 时知识库只有
+ * BM25 一路，功能不变。
  */
 @Service(Service.Level.PROJECT)
 public final class MentorJProjectService {
@@ -35,7 +37,8 @@ public final class MentorJProjectService {
     private final DocumentLibrary documentLibrary;
 
     public MentorJProjectService(@NotNull Project project) {
-        RagKnowledgeBase knowledgeBase = new RagKnowledgeBase(indexFile(project));
+        RagKnowledgeBase knowledgeBase =
+                new RagKnowledgeBase(indexFile(project), TongjiEmbeddingClient.fromEnvironment());
         this.documentLibrary = new RagDocumentLibrary(knowledgeBase, new DocumentProcessor());
 
         KnowledgeBase retrieval = knowledgeBase;
