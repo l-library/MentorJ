@@ -1,5 +1,7 @@
 package edu.mentorj.api;
 
+import java.util.List;
+
 /** agent 循环可调用的工具，各组提供实现后注册进 ToolRegistry。 */
 public interface Tool {
 
@@ -13,4 +15,15 @@ public interface Tool {
      * @return 回填给 LLM 的文本结果
      */
     String execute(String argumentsJson);
+
+    /** 检索工具可覆盖此方法提供真实来源；旧工具默认只返回文本。 */
+    default ExecutionResult executeWithSources(String argumentsJson) {
+        return new ExecutionResult(execute(argumentsJson), List.of());
+    }
+
+    record ExecutionResult(String text, List<Citation> citations) {
+        public ExecutionResult {
+            citations = List.copyOf(citations);
+        }
+    }
 }

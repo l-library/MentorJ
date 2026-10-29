@@ -3,12 +3,11 @@ package edu.mentorj;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.Project;
 import edu.mentorj.agent.AgentLoop;
-import edu.mentorj.agent.StubLlmService;
+import edu.mentorj.agent.ChatCompletionsLlmService;
 import edu.mentorj.agent.SystemPromptBuilder;
 import edu.mentorj.agent.ToolRegistry;
 import edu.mentorj.api.AgentService;
 import edu.mentorj.api.DocumentLibrary;
-import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.rag.DocumentProcessor;
 import edu.mentorj.rag.KnowledgeSearchTool;
 import edu.mentorj.rag.RagDocumentLibrary;
@@ -41,10 +40,10 @@ public final class MentorJProjectService {
                 new RagKnowledgeBase(indexFile(project), TongjiEmbeddingClient.fromEnvironment());
         this.documentLibrary = new RagDocumentLibrary(knowledgeBase, new DocumentProcessor());
 
-        KnowledgeBase retrieval = knowledgeBase;
         ToolRegistry toolRegistry = new ToolRegistry();
-        toolRegistry.register(new KnowledgeSearchTool(retrieval));
-        this.agentService = new AgentLoop(retrieval, new StubLlmService(), new SystemPromptBuilder(), toolRegistry);
+        toolRegistry.register(new KnowledgeSearchTool(knowledgeBase));
+        this.agentService = new AgentLoop(
+                knowledgeBase, new ChatCompletionsLlmService(), new SystemPromptBuilder(), toolRegistry);
     }
 
     public AgentService agentService() {
