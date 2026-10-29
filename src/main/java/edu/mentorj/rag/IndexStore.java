@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,11 +53,12 @@ final class IndexStore {
     }
 
     /**
-     * @return 索引里的知识块（{@code score} 为 0，检索时再算）；文件不存在或版本不匹配时返回空表
+     * @return 索引里的知识块（{@code score} 为 0，检索时再算）与生成时间；文件不存在或版本不匹配时
+     *         返回空结果
      */
-    static List<KnowledgeChunk> read(Path file) throws IOException {
+    static Loaded read(Path file) throws IOException {
         if (!Files.exists(file)) {
-            return List.of();
+            return Loaded.EMPTY;
         }
         IndexFile index;
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -65,13 +67,27 @@ final class IndexStore {
             throw new IOException(file.getFileName() + " 不是合法的索引文件", e);
         }
         if (index == null || index.version != VERSION || index.chunks == null) {
-            return List.of();
+            return Loaded.EMPTY;
         }
         List<KnowledgeChunk> chunks = new ArrayList<>(index.chunks.size());
         for (ChunkEntry entry : index.chunks) {
             chunks.add(new KnowledgeChunk(entry.text, entry.document, entry.pageOrScope, 0));
         }
-        return chunks;
+        return new Loaded(chunks, parseInstant(index.generatedAt));
+    }
+
+    private static Instant parseInstant(String value) {
+        try {
+            return value == null ? null : Instant.parse(value);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /** 一次读取的结果。 */
+    record Loaded(List<KnowledgeChunk> chunks, Instant generatedAt) {
+
+        static final Loaded EMPTY = new Loaded(List.of(), null);
     }
 
     private static final class IndexFile {

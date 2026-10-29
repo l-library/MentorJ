@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 public class IndexStoreTest {
@@ -27,13 +28,14 @@ public class IndexStoreTest {
                 new KnowledgeChunk("reset sets the count to zero", "Lec-3.4-JUnit.pdf", "p.3", 0));
 
         IndexStore.write(file, chunks, Instant.parse("2026-10-30T08:00:00Z"));
-        List<KnowledgeChunk> read = IndexStore.read(file);
+        IndexStore.Loaded read = IndexStore.read(file);
 
-        assertEquals(2, read.size());
-        assertEquals("Lec-3.4-JUnit.pdf", read.get(0).document());
-        assertEquals("p.2", read.get(0).pageOrScope());
-        assertEquals("A unit test checks a small behavior", read.get(0).text());
-        assertEquals("p.3", read.get(1).pageOrScope());
+        assertEquals(Instant.parse("2026-10-30T08:00:00Z"), read.generatedAt());
+        assertEquals(2, read.chunks().size());
+        assertEquals("Lec-3.4-JUnit.pdf", read.chunks().get(0).document());
+        assertEquals("p.2", read.chunks().get(0).pageOrScope());
+        assertEquals("A unit test checks a small behavior", read.chunks().get(0).text());
+        assertEquals("p.3", read.chunks().get(1).pageOrScope());
     }
 
     @Test
@@ -49,7 +51,8 @@ public class IndexStoreTest {
 
     @Test
     public void missingFileReadsAsEmpty() throws IOException {
-        assertEquals(List.of(), IndexStore.read(directory.resolve("absent.json")));
+        assertEquals(List.of(), IndexStore.read(directory.resolve("absent.json")).chunks());
+        assertNull(IndexStore.read(directory.resolve("absent.json")).generatedAt());
     }
 
     @Test
@@ -57,7 +60,7 @@ public class IndexStoreTest {
         Path file = directory.resolve("mentorj-index.json");
         Files.writeString(file, "{\"version\": 99, \"chunks\": [{\"text\": \"x\"}]}");
 
-        assertEquals(List.of(), IndexStore.read(file));
+        assertEquals(List.of(), IndexStore.read(file).chunks());
     }
 
     @Test(expected = IOException.class)
