@@ -19,6 +19,21 @@ checkstyle {
 
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
+    implementation(libs.tika.core) {
+        // Tika core uses commonmark only for Markdown; nothing here parses Markdown.
+        exclude(group = "org.commonmark")
+    }
+    implementation(libs.tika.pdf) {
+        // Tika's PDF module declares BouncyCastle (for signed PDFs), pdfbox-tools, picocli and
+        // commonmark for its command line tools. Text extraction never reaches them: the whole
+        // course corpus parses into the same 218 chunks with these jars removed, while they
+        // duplicated thousands of classes the platform already ships.
+        exclude(group = "org.bouncycastle")
+        exclude(group = "org.apache.pdfbox", module = "pdfbox-tools")
+        exclude(group = "info.picocli")
+        exclude(group = "org.commonmark")
+    }
+
     testImplementation(libs.junit)
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
