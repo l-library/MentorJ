@@ -29,7 +29,7 @@ public class RagKnowledgeBaseTest {
 
     @Test
     public void topHitScoresOneAndTheRestBelow() {
-        List<KnowledgeChunk> chunks = knowledgeBase().retrieve("counter increment assertion", 3);
+        List<KnowledgeChunk> chunks = knowledgeBase().retrieve("test type", 3);
 
         assertEquals(1.0, chunks.get(0).score(), 1e-9);
         for (KnowledgeChunk chunk : chunks) {
@@ -51,7 +51,13 @@ public class RagKnowledgeBaseTest {
 
     @Test
     public void respectsTopK() {
-        assertEquals(1, knowledgeBase().retrieve("flow assertion type", 1).size());
-        assertEquals(3, knowledgeBase().retrieve("flow assertion type", 10).size());
+        assertEquals(1, knowledgeBase().retrieve("test type", 1).size());
+        assertEquals(2, knowledgeBase().retrieve("test type", 10).size());
+    }
+
+    @Test
+    public void dropsChunksThatCoverTooLittleOfTheQuery() {
+        // 三个词只命中一个：按闸门规则不该当引用材料拿去用。
+        assertEquals(List.of(), knowledgeBase().retrieve("kafka partitioning exception", 5));
     }
 }

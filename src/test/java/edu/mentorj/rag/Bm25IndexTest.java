@@ -21,14 +21,34 @@ public class Bm25IndexTest {
                 chunk("JUnit runs @Test methods and reports assertion failures", "p.2"),
                 chunk("Generics let a collection hold one type", "p.3")));
 
-        assertEquals(List.of(1), index.search("assertion failure", 1));
+        assertEquals(List.of(1), chunksOf(index.search("assertion failure", 1)));
+    }
+
+    private static List<Integer> chunksOf(List<Bm25Index.Hit> hits) {
+        return hits.stream().map(Bm25Index.Hit::chunk).toList();
+    }
+
+    @Test
+    public void reportsHowMuchOfTheQueryEachChunkCovers() {
+        Bm25Index index = Bm25Index.of(List.of(
+                chunk("JUnit runs @Test methods and reports assertion failures", "p.1"),
+                chunk("Generics let a collection hold one type", "p.2")));
+
+        List<Bm25Index.Hit> hits = index.search("assertion failures type", 5);
+
+        // "assertion / failures / type" 三个词，两块各覆盖 2 个和 1 个。
+        assertEquals(2, hits.size());
+        assertEquals(0, hits.get(0).chunk());
+        assertEquals(2 / 3.0, hits.get(0).coverage(), 1e-9);
+        assertEquals(1, hits.get(1).chunk());
+        assertEquals(1 / 3.0, hits.get(1).coverage(), 1e-9);
     }
 
     @Test
     public void returnsNothingWhenNoTermMatches() {
         Bm25Index index = Bm25Index.of(List.of(chunk("JUnit runs @Test methods", "p.1")));
 
-        assertEquals(List.of(), index.search("kafka partitioning", 5));
+        assertEquals(List.of(), chunksOf(index.search("kafka partitioning", 5)));
     }
 
     @Test
@@ -39,7 +59,7 @@ public class Bm25IndexTest {
                 chunk("java reflection api", "p.3")));
 
         // "reflection" 只出现在一个块里，idf 高；"java" 出现在所有块里，idf 接近 0。
-        assertEquals(Integer.valueOf(2), index.search("java reflection", 1).get(0));
+        assertEquals(2, chunksOf(index.search("java reflection", 1)).get(0).intValue());
     }
 
     @Test
@@ -58,7 +78,7 @@ public class Bm25IndexTest {
                 chunk("void incrementAddsOne() { counter.increment(); }", "p.1"),
                 chunk("Generics let a collection hold one type", "p.2")));
 
-        assertEquals(Integer.valueOf(0), index.search("incrementAddsOne", 1).get(0));
+        assertEquals(0, chunksOf(index.search("incrementAddsOne", 1)).get(0).intValue());
     }
 
     @Test
@@ -67,6 +87,6 @@ public class Bm25IndexTest {
                 chunk("异常处理：try catch finally", "p.1"),
                 chunk("Generics let a collection hold one type", "p.2")));
 
-        assertTrue(index.search("异常", 1).contains(0));
+        assertTrue(chunksOf(index.search("异常", 1)).contains(0));
     }
 }

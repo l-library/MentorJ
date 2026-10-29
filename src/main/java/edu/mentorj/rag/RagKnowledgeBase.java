@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,22 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     private static final int RRF_K = 60;
     /** 每路各取前若干名参与融合；名次再靠后的块不值得占用上下文。 */
     private static final int RRF_DEPTH = 20;
+    /*
+     * 相关性闸门。没有闸门时，只要有一个词命中就返回结果，于是“课件里没有的内容”也会带上一
+     * 条假引用，而作业要求检索不到时明确声明只用通用知识。
+     *
+     * 阈值是量出来的（218 块，18 条查询，见 docs/RAG-DESIGN.md §5.2）。为什么不卡绝对余弦：
+     * 同一问题的不同写法彼此余弦只有 0.91–0.98，实测“How do I read a file line by line?”是
+     * 0.545、全小写版是 0.423，绝对阈值会被措辞直接推过线。改用**相对信号**：
+     * 榜首与中位数的差，正例最低 0.319、负例最高 0.280，没有重叠。
+     */
+    private static final double MIN_TOP_GAP = 0.30;
+    /** 榜首余弦足够高时可以直接判定语料覆盖了这个问题，不再要求差值。 */
+    private static final double DECISIVE_SIMILARITY = 0.60;
+    /** 单个块要进入引用列表的最低余弦，用来剪掉榜首之后的跑题块。 */
+    private static final double MIN_SIMILARITY = 0.45;
+    /** 没有向量时的退路：查询词至少一半出现在同一块里。 */
+    private static final double MIN_COVERAGE = 0.50;
 
     private final Path indexFile;
     private final EmbeddingProvider embeddingProvider;
@@ -79,39 +96,86 @@ public final class RagKnowledgeBase implements KnowledgeBase {
         if (current.isEmpty()) {
             return List.of();
         }
+        float[] queryVector = queryVector(query);
+        boolean semanticReady = queryVector != null && vectors.size() == current.size();
+        double[] similarities = semanticReady ? similarities(queryVector) : null;
+        if (similarities != null && !coversQuestion(similarities)) {
+            return List.of();
+        }
+
+        List<Integer> lexical = bm25.search(query, RRF_DEPTH).stream()
+                .filter(hit -> similarities != null
+                        ? similarities[hit.chunk()] >= MIN_SIMILARITY
+                        : hit.coverage() >= MIN_COVERAGE)
+                .map(Bm25Index.Hit::chunk)
+                .toList();
+        List<Integer> semantic = similarities != null
+                ? semanticRanking(similarities)
+                : List.of();
+
         List<List<Integer>> rankings = new ArrayList<>();
-        rankings.add(bm25.search(query, RRF_DEPTH));
-        List<Integer> semantic = semanticRanking(query, current);
+        if (!lexical.isEmpty()) {
+            rankings.add(lexical);
+        }
         if (!semantic.isEmpty()) {
             rankings.add(semantic);
+        }
+        if (rankings.isEmpty()) {
+            return List.of();
         }
         return fuse(rankings, topK, current);
     }
 
     /**
-     * 用 SEMANTIC_DEPTH 之外的语义分数做排名。
-     *
-     * @return 命中的块号，按余弦降序；没有向量、没配 provider 或调用失败时返回空表
+     * @return 查询向量；没配 provider、本次会话已降级或调用失败时返回 {@code null}
      */
-    private List<Integer> semanticRanking(String query, List<KnowledgeChunk> current) {
-        List<float[]> currentVectors = vectors;
-        if (embeddingProvider == null || !semanticUsable || currentVectors.size() != current.size()) {
-            return List.of();
+    private float[] queryVector(String query) {
+        if (embeddingProvider == null || !semanticUsable) {
+            return null;
         }
-        float[] queryVector;
         try {
-            queryVector = embeddingProvider.embedQuery(query);
+            return embeddingProvider.embedQuery(query);
         } catch (IOException e) {
             // 端点不可用不该让提问失败：关掉语义这一路，本次会话老老实实用 BM25。
             semanticUsable = false;
             LOG.log(Level.WARNING, "语义检索不可用，本次会话退回纯 BM25：" + e.getMessage(), e);
-            return List.of();
+            return null;
         }
+    }
+
+    private double[] similarities(float[] queryVector) {
+        List<float[]> currentVectors = vectors;
+        double[] similarities = new double[currentVectors.size()];
+        for (int i = 0; i < similarities.length; i++) {
+            similarities[i] = cosine(queryVector, currentVectors.get(i));
+        }
+        return similarities;
+    }
+
+    /**
+     * 语料是否覆盖了这个问题。
+     *
+     * <p>两个信号取或：榜首明显高于中位数，说明语料里确实有一块紧扣问题；或者榜首本身余弦够高，
+     * 说明它就是答案。两者都不满足时，语料里没有相关内容，调用方据此声明“仅通用知识”。
+     */
+    static boolean coversQuestion(double[] similarities) {
+        double[] sorted = similarities.clone();
+        Arrays.sort(sorted);
+        double best = sorted[sorted.length - 1];
+        double median = sorted[sorted.length / 2];
+        return best >= DECISIVE_SIMILARITY || best - median >= MIN_TOP_GAP;
+    }
+
+    /**
+     * 按余弦相似度排名。
+     *
+     * @return 命中的块号，按余弦降序；低于闸门的块不参与融合
+     */
+    private List<Integer> semanticRanking(double[] similarities) {
         Map<Integer, Double> scores = new HashMap<>();
-        for (int i = 0; i < currentVectors.size(); i++) {
-            double similarity = cosine(queryVector, currentVectors.get(i));
-            if (similarity > 0) {
-                scores.put(i, similarity);
+        for (int i = 0; i < similarities.length; i++) {
+            if (similarities[i] >= MIN_SIMILARITY) {
+                scores.put(i, similarities[i]);
             }
         }
         return scores.entrySet().stream()
