@@ -132,7 +132,32 @@ PDF → 逐页抽文本 → 页脚/页眉清洗 → 页级切块（超长页二�
 
 `what is retrieval augmented generation` 的 top-1 落在作业说明 PDF：它确实含这个词，属于可辩护但不够理想的命中；也说明导入范围包含作业说明时，引用会指向它。
 
-## 6. 已知限制
+## 6. 接线与线程
+
+```
+MentorJProjectService(Project)        ← 组装点，只接线
+  ├─ RagKnowledgeBase(.idea/mentorj-index.json)
+  ├─ RagDocumentLibrary(base, new DocumentProcessor())  → 界面组拿 DocumentLibrary
+  ├─ KnowledgeSearchTool(base)                          → 注册进 ToolRegistry
+  └─ AgentLoop(base, llm, prompts, tools)               → 界面组拿 AgentService
+```
+
+项目没有基础目录（默认项目 / light project）时索引路径为 `null`，知识库退化为纯内存，功能不变、重启才丢。
+
+线程约定，两条都是硬的：
+
+1. **构造函数不碰磁盘。** 项目级 service 在 EDT 上实例化（首次 `getService`），所以索引在首次
+   `retrieve` / `statistics` 时才加载，且由 `synchronized` 保证只加载一次。
+2. **导入走后台线程。** `importDocuments` 会花几十秒（将来还要调 embedding），界面组负责放后台并
+   用 `ProgressListener` 回调进度；回调在导入线程上，更新 UI 要自己切回 EDT。
+
+并发安全：写入（`index` / `clear` / `ensureLoaded`）互斥，读取用 volatile 快照，所以“后台导入 +
+侧边栏同时提问”不会读到半个索引。
+
+失败降级：写盘失败 → 本次会话内存可用，日志告警；索引文件损坏 → 按空索引处理，日志告警，用户重新
+导入即可；单个文档解析失败 → 进 `ImportResult.failures()`，不影响其余文档。
+
+## 7. 已知限制
 
 - 扫描版 PDF（无文本层）会解析出空文本，目前作为失败项上报，不做 OCR。
 - 中文提问检索英文课件召回显著偏低：不做翻译与改写（导入的材料语言未知，写死中→英是错误假设），此时如实降级为“仅通用知识”。
