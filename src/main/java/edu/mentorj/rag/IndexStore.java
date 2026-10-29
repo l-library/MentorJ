@@ -24,23 +24,33 @@ import java.util.List;
  */
 final class IndexStore {
 
-    static final int VERSION = 1;
+    /** 2 起带向量；读取仍接受 1（只有 BM25 的旧索引），写入一律写当前版本。 */
+    static final int VERSION = 2;
+    private static final int OLDEST_SUPPORTED_VERSION = 1;
+    /** 向量保留 4 位小数：再精细对余弦排序没有影响，文件却能小一截。 */
+    private static final float VECTOR_PRECISION = 10_000f;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     private IndexStore() {
     }
 
-    static void write(Path file, List<KnowledgeChunk> chunks, Instant generatedAt) throws IOException {
+    /**
+     * @param vectors 与 {@code chunks} 等长的向量；空表表示这次导入没有可用的向量
+     */
+    static void write(Path file, List<KnowledgeChunk> chunks, List<float[]> vectors, Instant generatedAt)
+            throws IOException {
         IndexFile index = new IndexFile();
         index.version = VERSION;
         index.generatedAt = generatedAt.toString();
         index.chunks = new ArrayList<>();
-        for (KnowledgeChunk chunk : chunks) {
+        for (int i = 0; i < chunks.size(); i++) {
+            KnowledgeChunk chunk = chunks.get(i);
             ChunkEntry entry = new ChunkEntry();
             entry.document = chunk.document();
             entry.pageOrScope = chunk.pageOrScope();
             entry.text = chunk.text();
+            entry.vector = i < vectors.size() ? rounded(vectors.get(i)) : null;
             index.chunks.add(entry);
         }
         Path parent = file.getParent();
@@ -66,14 +76,23 @@ final class IndexStore {
         } catch (JsonSyntaxException e) {
             throw new IOException(file.getFileName() + " 不是合法的索引文件", e);
         }
-        if (index == null || index.version != VERSION || index.chunks == null) {
+        if (index == null || index.version < OLDEST_SUPPORTED_VERSION || index.version > VERSION
+                || index.chunks == null) {
             return Loaded.EMPTY;
         }
         List<KnowledgeChunk> chunks = new ArrayList<>(index.chunks.size());
+        List<float[]> vectors = new ArrayList<>(index.chunks.size());
+        boolean complete = true;
         for (ChunkEntry entry : index.chunks) {
             chunks.add(new KnowledgeChunk(entry.text, entry.document, entry.pageOrScope, 0));
+            if (entry.vector == null) {
+                complete = false;
+            } else {
+                vectors.add(entry.vector);
+            }
         }
-        return new Loaded(chunks, parseInstant(index.generatedAt));
+        // 向量必须是“全有”才能建语义排名：少一条就没法按块号对齐，宁可整体当作没有向量。
+        return new Loaded(chunks, complete ? vectors : List.of(), parseInstant(index.generatedAt));
     }
 
     private static Instant parseInstant(String value) {
@@ -84,10 +103,18 @@ final class IndexStore {
         }
     }
 
-    /** 一次读取的结果。 */
-    record Loaded(List<KnowledgeChunk> chunks, Instant generatedAt) {
+    private static float[] rounded(float[] vector) {
+        float[] copy = new float[vector.length];
+        for (int i = 0; i < vector.length; i++) {
+            copy[i] = Math.round(vector[i] * VECTOR_PRECISION) / VECTOR_PRECISION;
+        }
+        return copy;
+    }
 
-        static final Loaded EMPTY = new Loaded(List.of(), null);
+    /** 一次读取的结果；{@code vectors} 为空表示索引里没有向量（只读索引或旧索引）。 */
+    record Loaded(List<KnowledgeChunk> chunks, List<float[]> vectors, Instant generatedAt) {
+
+        static final Loaded EMPTY = new Loaded(List.of(), List.of(), null);
     }
 
     private static final class IndexFile {
@@ -100,5 +127,6 @@ final class IndexStore {
         private String document;
         private String pageOrScope;
         private String text;
+        private float[] vector;
     }
 }
