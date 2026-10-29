@@ -1,0 +1,23 @@
+// RAG golden set：每条一行，Tab 分隔。
+// 列：question <TAB> expected document <TAB> expected page
+// 页码列写 "-" 表示课件里确实没有这个内容，期望返回空结果（generalKnowledgeOnly）。
+// 页码是 PDF 页序，与课件页脚印的页码一致，可逐页核对。
+How do I assert that a method throws an exception?	Lec-3.4-JUnit.pdf	p.5
+What does @BeforeEach do?	Lec-3.4-JUnit.pdf	p.4
+How do I write a parameterized test with ValueSource?	Lec-3.4-JUnit.pdf	p.6
+Why should tests not depend on execution order?	Lec-3.4-JUnit.pdf	p.4
+What is the difference between checked and unchecked exceptions?	Lec-3.1-Exceptions.pdf	p.5
+What happens when an exception is not caught?	Lec-3.1-Exceptions.pdf	p.3
+When do I need a catch or specify requirement?	Lec-3.1-Exceptions.pdf	p.4
+How do I declare a generic type parameter?	Lec-3.2-Generics-and-Collections.pdf	p.7
+What is the difference between an interface and an abstract class?	Lec-2-OOP-with-Java.pdf	p.30
+How do I declare a constructor for a class?	Lec-2-OOP-with-Java.pdf	p.6
+What does StringBuilder do and why is it faster?	Lec-1-Java-Fundamentals.pdf	p.34
+How do I write a lambda expression for a comparator?	Lec-3.3-ModernSyntax-Annotations-and-Reflection.pdf	p.2
+What are the assessment components of this course?	Lec-0-Introduction.pdf	p.4
+How does the agent loop call tools?	Lec-5-Building-AI-Powered-Java-Applications.pdf	p.32
+What is retrieval augmented generation?	Lec-5-Building-AI-Powered-Java-Applications.pdf	p.23
+How do I read a file line by line?	-	-
+How do I configure a database connection pool?	-	-
+What is the difference between Angular and React?	-	-
+How do I deploy a Spring Boot app to Kubernetes?	-	-
