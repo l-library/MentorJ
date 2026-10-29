@@ -3,7 +3,7 @@ package edu.mentorj;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.project.Project;
 import edu.mentorj.agent.AgentLoop;
-import edu.mentorj.agent.StubLlmService;
+import edu.mentorj.agent.ChatCompletionsLlmService;
 import edu.mentorj.agent.SystemPromptBuilder;
 import edu.mentorj.agent.ToolRegistry;
 import edu.mentorj.api.AgentService;
@@ -25,7 +25,8 @@ public final class MentorJProjectService {
         KnowledgeBase knowledgeBase = new RagKnowledgeBase();
         ToolRegistry toolRegistry = new ToolRegistry();
         toolRegistry.register(new KnowledgeSearchTool(knowledgeBase));
-        this.agentService = new AgentLoop(knowledgeBase, new StubLlmService(), new SystemPromptBuilder(), toolRegistry);
+        this.agentService = new AgentLoop(
+                knowledgeBase, new ChatCompletionsLlmService(), new SystemPromptBuilder(), toolRegistry);
     }
 
     public AgentService agentService() {
