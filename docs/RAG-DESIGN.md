@@ -203,6 +203,30 @@ MentorJProjectService(Project)        ← 组装点，只接线
 失败降级：写盘失败 → 本次会话内存可用，日志告警；索引文件损坏 → 按空索引处理，日志告警，用户重新
 导入即可；单个文档解析失败 → 进 `ImportResult.failures()`，不影响其余文档。
 
+### 6.1 依赖与沙箱验证（2026-10-29）
+
+插件最终只带 **10 个 jar / 5.4 MB**。从 `tika-parser-pdf-module` 的传递依赖里排除了四组：
+
+| 排除的依赖 | 为什么能排 | 影响 |
+| --- | --- | --- |
+| BouncyCastle（bcprov/bcpkix/bcutil/bcjmail） | 只用于签名 PDF 验签 | 与平台重复 **5700+** 个类，去掉后省约 9 MB |
+| `pdfbox-tools`、`picocli` | Tika 命令行工具用 | 抽取路径不碰 |
+| `commonmark` | Tika 解析 Markdown 用 | 本插件不解析 Markdown |
+
+排除是**实测**的，不是看文档猜的：用去掉这些 jar 的类路径把 `assets/` 全部 10 个 PDF 跑了一遍，仍然是 218 块、页码正常。
+
+仍然重复但必须保留的三项（Tika/PDFBox 运行时要）：`slf4j-api`（54/56 个类与平台重复）、`commons-io`（370/429）、`commons-logging`（18/29）。插件类加载器优先用自己 jar 里的版本，这几个库版本稳定、接口向后兼容，风险可接受。
+
+验证结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| `./gradlew verifyPlugin`（IU-253.33813.55） | **Compatible**，无问题项 |
+| 沙箱 `runIde` 加载 | `Loaded custom plugins: MentorJ (1.0.0-SNAPSHOT)`，日志 **0 条 ERROR**，无 `NoClassDefFoundError` / `LinkageError` |
+| 沙箱内用插件自带的 10 个 jar 解析课件 | 10 个 PDF → 218 块 |
+
+**没验证到的**：沙箱里点开 tool window 与真实导入流程。原因是导入入口归界面组、目前还没实现；另外这台机器上 GUI 自动化（xdotool）的合成按键会落到用户自己开着的 IDE 上，不适合继续。等界面组做出入口后，演示前必须在沙箱里手点一遍：导入 `assets/` → 提问 → 看引用页码。
+
 ## 7. 已知限制
 
 - 扫描版 PDF（无文本层）会解析出空文本，目前作为失败项上报，不做 OCR。
