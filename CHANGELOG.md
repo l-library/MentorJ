@@ -8,6 +8,7 @@
 
 - MentorJ plugin icon (mortarboard over a speech bubble) shown in the plugin list, the sidebar tool window and the editor/Tools menu actions.
 - Streamed Chat Completions responses: text arrives as it is generated and tool calls are assembled from fragments, with an idle timeout, cancellation, and a `MENTORJ_LLM_STREAM` switch for incompatible gateways.
+- Sidebar answers rendered as Markdown message cards with streamed text, a stop button, citations and the general-knowledge notice, per-answer copy/regenerate, code-block copy/insert, editor-selection context, and restored local history.
 - Native Chat Completions tool calls with correlated results, bounded agent loops, and retrieved source aggregation.
 - Validated action inputs, JUnit and Conventional Commit prompts, cancellation handling, and context limits.
 - Configurable output token budget and regression tests for tool protocol, retrieval metadata, and agent isolation.
