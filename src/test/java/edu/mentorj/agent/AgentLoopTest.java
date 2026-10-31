@@ -7,6 +7,7 @@ import edu.mentorj.api.Citation;
 import edu.mentorj.api.EditorContext;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
+import edu.mentorj.api.StreamListener;
 import edu.mentorj.api.Tool;
 import org.junit.Test;
 
@@ -178,6 +179,145 @@ public class AgentLoopTest {
         assertEquals(4, sent.size());
         assertTrue(sent.get(3).tools().isEmpty());
         assertTrue(sent.get(3).systemPrompt().contains("勿再调用工具"));
+    }
+
+    @Test
+    public void forwardsStreamedDeltasAndKeepsCitations() {
+        List<String> events = new ArrayList<>();
+        LlmService llm = new LlmService() {
+            @Override
+            public Result complete(Request request) {
+                throw new AssertionError("A streaming caller must use the listener overload");
+            }
+
+            @Override
+            public Result complete(Request request, StreamListener listener) {
+                listener.onText("构造器");
+                listener.onText("注入");
+                return new Result("构造器注入", List.of());
+            }
+        };
+        AgentLoop agent = new AgentLoop(
+                (query, topK) -> List.of(new KnowledgeChunk("Constructor injection", "Spring.pdf", "5", 1)),
+                llm, new SystemPromptBuilder(), new ToolRegistry());
+        AgentResponse response = agent.respond(question(), new StreamListener() {
+            @Override
+            public void onText(String delta) {
+                events.add("text:" + delta);
+            }
+        });
+        assertEquals(List.of("text:构造器", "text:注入"), events);
+        assertEquals("构造器注入", response.text());
+        assertEquals(List.of(new Citation("Spring.pdf", "5")), response.citations());
+    }
+
+    @Test
+    public void reportsToolRoundsAndStreamsOnlyTheFinalAnswer() {
+        List<String> events = new ArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger executions = new AtomicInteger();
+        LlmService llm = new LlmService() {
+            @Override
+            public Result complete(Request request) {
+                throw new AssertionError("A streaming caller must use the listener overload");
+            }
+
+            @Override
+            public Result complete(Request request, StreamListener listener) {
+                if (calls.getAndIncrement() == 0) {
+                    listener.onText("I will check the material first");
+                    return new Result(null, List.of(new LlmService.ToolCall("a", "search", "{}")), "thinking");
+                }
+                listener.onText("final answer");
+                return new Result("final answer", List.of());
+            }
+        };
+        AgentLoop agent = new AgentLoop((query, topK) -> List.of(), llm,
+                new SystemPromptBuilder(), registry(executions, List.of()));
+        AgentResponse response = agent.respond(question(), new StreamListener() {
+            @Override
+            public void onText(String delta) {
+                events.add("text:" + delta);
+            }
+
+            @Override
+            public void onToolCalls(List<String> toolNames) {
+                events.add("tools:" + toolNames);
+            }
+        });
+        assertEquals(List.of("text:I will check the material first", "tools:[search]", "text:final answer"),
+                events);
+        assertEquals("final answer", response.text());
+        assertEquals(1, executions.get());
+    }
+
+    @Test
+    public void stopsBeforeExecutingToolsWhenTheListenerCancelsOnToolCalls() {
+        AtomicInteger executions = new AtomicInteger();
+        LlmService llm = new LlmService() {
+            @Override
+            public Result complete(Request request) {
+                throw new AssertionError("A streaming caller must use the listener overload");
+            }
+
+            @Override
+            public Result complete(Request request, StreamListener listener) {
+                return new Result(null, List.of(new LlmService.ToolCall("a", "search", "{}")));
+            }
+        };
+        AgentLoop agent = new AgentLoop((query, topK) -> List.of(), llm,
+                new SystemPromptBuilder(), registry(executions, List.of()));
+        StreamListener listener = new StreamListener() {
+            private boolean cancelled;
+
+            @Override
+            public void onText(String delta) {
+            }
+
+            @Override
+            public void onToolCalls(List<String> toolNames) {
+                cancelled = true;
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return cancelled;
+            }
+        };
+        AgentResponse response = agent.respond(question(), listener);
+        assertEquals(0, executions.get());
+        assertTrue(response.text().contains("取消"));
+    }
+
+    @Test
+    public void stopsBeforeCallingTheModelWhenAlreadyCancelled() {
+        AtomicInteger calls = new AtomicInteger();
+        LlmService llm = new LlmService() {
+            @Override
+            public Result complete(Request request) {
+                throw new AssertionError("A streaming caller must use the listener overload");
+            }
+
+            @Override
+            public Result complete(Request request, StreamListener listener) {
+                calls.incrementAndGet();
+                return new Result("answer", List.of());
+            }
+        };
+        AgentLoop agent = new AgentLoop((query, topK) -> List.of(), llm,
+                new SystemPromptBuilder(), new ToolRegistry());
+        AgentResponse response = agent.respond(question(), new StreamListener() {
+            @Override
+            public void onText(String delta) {
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return true;
+            }
+        });
+        assertEquals(0, calls.get());
+        assertTrue(response.text().contains("取消"));
     }
 
     @Test
