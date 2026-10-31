@@ -10,7 +10,6 @@ import edu.mentorj.MentorJBundle;
 import edu.mentorj.MentorJProjectService;
 import edu.mentorj.api.AgentRequest;
 import edu.mentorj.api.AgentResponse;
-import edu.mentorj.api.Citation;
 import edu.mentorj.api.StreamListener;
 import org.jetbrains.annotations.NotNull;
 
@@ -124,46 +123,9 @@ final class AgentRequests {
         };
     }
 
-    /** 后台执行一次请求，并把结果显示在只读对话框里；取消时不打扰用户。 */
+    /** 打开结果对话框并立即开始请求，正文在对话框里流式刷新。 */
     static void showResult(@NotNull Project project, @NotNull String title, @NotNull AgentRequest request) {
-        submit(project, title, request, new Callbacks() {
-            @Override
-            public void onText(String text) {
-            }
-
-            @Override
-            public void onDone(AgentResponse response) {
-                new ResultDialog(project, title, format(response)).show();
-            }
-
-            @Override
-            public void onCancelled() {
-            }
-
-            @Override
-            public void onError(String message) {
-                new ResultDialog(project, title, message).show();
-            }
-        });
-    }
-
-    /** 把回答拼成可直接展示的文本：正文 + 引用来源 + 通用知识声明。 */
-    static @NotNull String format(@NotNull AgentResponse response) {
-        StringBuilder text = new StringBuilder();
-        if (response.text() != null) {
-            text.append(response.text().stripTrailing());
-        }
-        if (!response.citations().isEmpty()) {
-            text.append("\n\n").append(MentorJBundle.message("response.citationsTitle"));
-            for (Citation citation : response.citations()) {
-                text.append('\n').append(MentorJBundle.message(
-                        "response.citationItem", citation.document(), citation.pageOrScope()));
-            }
-        }
-        if (response.generalKnowledgeOnly()) {
-            text.append("\n\n").append(MentorJBundle.message("toolwindow.generalKnowledgeNotice"));
-        }
-        return text.toString();
+        new ResultDialog(project, title, request).show();
     }
 
     /** 把未预期的异常转成用户能读的一句话，不暴露堆栈。 */
