@@ -59,6 +59,7 @@ final class ResultDialog extends DialogWrapper implements Disposable {
     }
 
     private void start() {
+        long started = System.nanoTime();
         stopAction.setEnabled(true);
         handle = AgentRequests.submit(project, getTitle(), request, new AgentRequests.Callbacks() {
             @Override
@@ -85,6 +86,7 @@ final class ResultDialog extends DialogWrapper implements Disposable {
                     return;
                 }
                 answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                answer.elapsed((System.nanoTime() - started) / 1_000_000);
                 transcript.refresh(answer);
                 stopAction.setEnabled(false);
             }
@@ -95,6 +97,7 @@ final class ResultDialog extends DialogWrapper implements Disposable {
                     return;
                 }
                 answer.cancelled();
+                answer.elapsed((System.nanoTime() - started) / 1_000_000);
                 transcript.refresh(answer);
                 stopAction.setEnabled(false);
             }
@@ -105,6 +108,7 @@ final class ResultDialog extends DialogWrapper implements Disposable {
                     return;
                 }
                 answer.failed(message);
+                answer.elapsed((System.nanoTime() - started) / 1_000_000);
                 transcript.refresh(answer);
                 stopAction.setEnabled(false);
             }

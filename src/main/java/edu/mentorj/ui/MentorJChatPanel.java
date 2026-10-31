@@ -254,6 +254,7 @@ final class MentorJChatPanel extends JPanel implements Disposable {
     }
 
     private void start(AgentRequest request, ChatMessage answer) {
+        long started = System.nanoTime();
         streaming = answer;
         setBusy(true);
         status.setText(MentorJBundle.message("chat.thinking"));
@@ -287,6 +288,7 @@ final class MentorJChatPanel extends JPanel implements Disposable {
                             return;
                         }
                         answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                        answer.elapsed((System.nanoTime() - started) / 1_000_000);
                         transcript.refresh(answer);
                         finishTurn();
                         requests.put(answer, request);
@@ -300,6 +302,7 @@ final class MentorJChatPanel extends JPanel implements Disposable {
                             return;
                         }
                         answer.cancelled();
+                        answer.elapsed((System.nanoTime() - started) / 1_000_000);
                         transcript.refresh(answer);
                         finishTurn();
                         requests.put(answer, request);
@@ -312,6 +315,7 @@ final class MentorJChatPanel extends JPanel implements Disposable {
                             return;
                         }
                         answer.failed(message);
+                        answer.elapsed((System.nanoTime() - started) / 1_000_000);
                         transcript.refresh(answer);
                         finishTurn();
                     }

@@ -22,6 +22,7 @@ final class ChatMessage {
     private List<Citation> citations = List.of();
     private boolean generalKnowledgeOnly;
     private State state;
+    private long elapsedMillis = -1;
 
     ChatMessage(Role role, String text) {
         this(role, text, Instant.now());
@@ -58,6 +59,11 @@ final class ChatMessage {
         return state;
     }
 
+    /** Time spent on the request, or a negative value when it is unknown. */
+    long elapsedMillis() {
+        return elapsedMillis;
+    }
+
     void text(String value) {
         this.text = value == null ? "" : value;
     }
@@ -80,5 +86,9 @@ final class ChatMessage {
     void failed(String value) {
         text(value);
         state = State.FAILED;
+    }
+
+    void elapsed(long millis) {
+        elapsedMillis = millis;
     }
 }

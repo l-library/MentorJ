@@ -3,12 +3,15 @@ package edu.mentorj.ui;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.ui.components.JBScrollPane;
+import edu.mentorj.MentorJBundle;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JPanel;
+import java.awt.FlowLayout;
+import java.awt.Cursor;
 import javax.swing.JScrollBar;
 import javax.swing.Scrollable;
 import javax.swing.ScrollPaneConstants;
@@ -36,6 +39,8 @@ final class ChatTranscript extends JPanel {
     private final Consumer<String> insertCode;
     private final MessageList list = new MessageList();
     private final JBScrollPane scroll = new JBScrollPane(list);
+    private final JButton jumpToBottom = new JButton(MentorJBundle.message("chat.toBottom"));
+    private final JPanel bottomBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
     private final Map<ChatMessage, MessageCard> cards = new IdentityHashMap<>();
     private final Map<ChatMessage, JPanel> rows = new IdentityHashMap<>();
     private final List<ChatMessage> messages = new ArrayList<>();
@@ -55,11 +60,24 @@ final class ChatTranscript extends JPanel {
         scroll.getViewport().setOpaque(false);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.getVerticalScrollBar().setUnitIncrement(JBUI.scale(16));
+        scroll.getVerticalScrollBar().addAdjustmentListener(event -> updateJumpButton());
         add(scroll, BorderLayout.CENTER);
+        jumpToBottom.setBorderPainted(false);
+        jumpToBottom.setContentAreaFilled(false);
+        jumpToBottom.setFocusPainted(false);
+        jumpToBottom.setFont(JBUI.Fonts.smallFont());
+        jumpToBottom.setForeground(ChatStyles.link());
+        jumpToBottom.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        jumpToBottom.addActionListener(event -> scrollToBottom());
+        bottomBar.setOpaque(false);
+        bottomBar.setVisible(false);
+        bottomBar.add(jumpToBottom);
+        add(bottomBar, BorderLayout.SOUTH);
         scroll.getViewport().addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent event) {
                 list.revalidate();
+                updateJumpButton();
             }
         });
     }
@@ -86,6 +104,7 @@ final class ChatTranscript extends JPanel {
         if (stick || cards.size() == 1) {
             scrollToBottom();
         }
+        updateJumpButton();
     }
 
     /** Re-renders one card, used for every stream delta and when a turn finishes. */
@@ -100,6 +119,7 @@ final class ChatTranscript extends JPanel {
         if (stick) {
             scrollToBottom();
         }
+        updateJumpButton();
     }
 
     /** Removes one turn, used when the latest answer is regenerated. */
@@ -137,6 +157,7 @@ final class ChatTranscript extends JPanel {
         messages.clear();
         list.revalidate();
         list.repaint();
+        updateJumpButton();
     }
 
     int messageCount() {
@@ -148,6 +169,10 @@ final class ChatTranscript extends JPanel {
         return List.copyOf(messages);
     }
 
+    private void updateJumpButton() {
+        bottomBar.setVisible(!isStuckToBottom());
+    }
+
     private boolean isStuckToBottom() {
         JScrollBar bar = scroll.getVerticalScrollBar();
         return bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - STICK_THRESHOLD;
@@ -157,6 +182,7 @@ final class ChatTranscript extends JPanel {
         ApplicationManager.getApplication().invokeLater(() -> {
             JScrollBar bar = scroll.getVerticalScrollBar();
             bar.setValue(bar.getMaximum());
+            updateJumpButton();
         }, ModalityState.any());
     }
 

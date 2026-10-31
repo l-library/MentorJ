@@ -1,5 +1,6 @@
 package edu.mentorj.ui;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.ui.components.JBLabel;
@@ -125,19 +126,30 @@ final class MessageCard extends JPanel {
     }
 
     private boolean showHeader() {
-        return message.role() == ChatMessage.Role.USER || message.role() == ChatMessage.Role.ASSISTANT;
+        return message.role() != ChatMessage.Role.NOTICE;
     }
 
     private JPanel createHeader() {
         header.setOpaque(false);
-        JBLabel name = new JBLabel(message.role() == ChatMessage.Role.USER
-                ? MentorJBundle.message("chat.you") : MentorJBundle.message("chat.assistant"));
+        String label = switch (message.role()) {
+            case USER -> MentorJBundle.message("chat.you");
+            case ASSISTANT -> MentorJBundle.message("chat.assistant");
+            case ERROR -> MentorJBundle.message("chat.errorTitle");
+            case NOTICE -> "";
+        };
+        JBLabel name = new JBLabel(label);
         name.setFont(UIUtil.getLabelFont().deriveFont(Font.BOLD));
         name.setForeground(ChatStyles.text());
+        JPanel west = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 4, 0));
+        west.setOpaque(false);
+        if (isError()) {
+            west.add(new JBLabel(AllIcons.General.Error));
+        }
+        west.add(name);
         JBLabel time = new JBLabel(TIME.format(message.time()));
         time.setFont(JBUI.Fonts.smallFont());
         time.setForeground(ChatStyles.mutedText());
-        header.add(name, BorderLayout.WEST);
+        header.add(west, BorderLayout.WEST);
         header.add(time, BorderLayout.EAST);
         return header;
     }
@@ -234,7 +246,7 @@ final class MessageCard extends JPanel {
 
     private void refreshFooter() {
         String signature = message.citations() + "|" + message.generalKnowledgeOnly() + "|"
-                + message.state() + "|" + status.getText();
+                + message.state() + "|" + message.elapsedMillis() + "|" + status.getText();
         if (signature.equals(footerSignature)) {
             return;
         }
@@ -266,6 +278,13 @@ final class MessageCard extends JPanel {
             cancelled.setFont(JBUI.Fonts.smallFont());
             cancelled.setForeground(ChatStyles.mutedText());
             footer.add(cancelled);
+        }
+        if (message.elapsedMillis() >= 0) {
+            JBLabel elapsed = new JBLabel(MentorJBundle.message("chat.elapsed",
+                    String.format(java.util.Locale.ROOT, "%.1f", message.elapsedMillis() / 1000.0)));
+            elapsed.setFont(JBUI.Fonts.smallFont());
+            elapsed.setForeground(ChatStyles.mutedText());
+            footer.add(elapsed);
         }
         if (!status.getText().isBlank()) {
             footer.add(status);
