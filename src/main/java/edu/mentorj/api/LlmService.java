@@ -11,6 +11,20 @@ public interface LlmService {
     Result complete(Request request);
 
     /**
+     * 完成一轮对话，并在服务端支持时回调正文增量。
+     *
+     * <p>{@code listener} 在调用线程上被回调；默认实现退化为一次性返回，
+     * 保证旧实现与测试无需修改。
+     */
+    default Result complete(Request request, StreamListener listener) {
+        Result result = complete(request);
+        if (!listener.isCancelled() && result.toolCalls().isEmpty() && result.content() != null) {
+            listener.onText(result.content());
+        }
+        return result;
+    }
+
+    /**
      * 一条对话消息。
      *
      * @param role    角色：system / user / assistant / tool

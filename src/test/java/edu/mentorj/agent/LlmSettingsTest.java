@@ -31,6 +31,21 @@ public class LlmSettingsTest {
     }
 
     @Test
+    public void streamsByDefaultAndAcceptsAnExplicitSwitch() {
+        assertTrue(LlmSettings.fromEnvironment(environment()).stream());
+        Map<String, String> environment = environment();
+        environment.put("MENTORJ_LLM_STREAM", "false");
+        assertFalse(LlmSettings.fromEnvironment(environment).stream());
+        environment.put("MENTORJ_LLM_STREAM", " TRUE ");
+        assertTrue(LlmSettings.fromEnvironment(environment).stream());
+        for (String value : new String[]{"", "0", "yes", "stream"}) {
+            environment.put("MENTORJ_LLM_STREAM", value);
+            LlmException error = assertThrows(LlmException.class, () -> LlmSettings.fromEnvironment(environment));
+            assertTrue(error.getMessage().contains("MENTORJ_LLM_STREAM"));
+        }
+    }
+
+    @Test
     public void buildsEndpointAndKeepsCredentialsOutOfToString() {
         LlmSettings settings = LlmSettings.fromEnvironment(environment());
         assertEquals(URI.create("https://example.com/v1/chat/completions"), settings.endpoint());

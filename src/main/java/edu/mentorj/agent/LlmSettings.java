@@ -5,14 +5,18 @@ import java.time.Duration;
 import java.util.Map;
 
 /** Local configuration, read only when making a request so an unconfigured IDE can still start. */
-record LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, int maxTokens) {
+record LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, int maxTokens, boolean stream) {
 
     private static final String DEFAULT_BASE_URL = "https://agi.tongji.edu.cn/v1";
     private static final String DEFAULT_MODEL = "DeepSeek-V4.1-Flash";
     private static final int DEFAULT_MAX_TOKENS = 8192;
 
     LlmSettings(URI endpoint, String apiKey, String model, Duration timeout) {
-        this(endpoint, apiKey, model, timeout, DEFAULT_MAX_TOKENS);
+        this(endpoint, apiKey, model, timeout, DEFAULT_MAX_TOKENS, true);
+    }
+
+    LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, int maxTokens) {
+        this(endpoint, apiKey, model, timeout, maxTokens, true);
     }
 
     static LlmSettings fromEnvironment() {
@@ -57,10 +61,26 @@ record LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, 
             if (seconds < 1 || seconds > 600) {
                 throw new NumberFormatException();
             }
-            return new LlmSettings(endpoint, apiKey, model, Duration.ofSeconds(seconds), maxTokens);
+            return new LlmSettings(endpoint, apiKey, model, Duration.ofSeconds(seconds), maxTokens,
+                    stream(environment));
         } catch (NumberFormatException e) {
             throw new LlmException("llm.invalidTimeout");
         }
+    }
+
+    /** 流式开关默认开启；网关不兼容时可用环境变量关闭，不必重新发版。 */
+    private static boolean stream(Map<String, String> environment) {
+        String value = environment.get("MENTORJ_LLM_STREAM");
+        if (value == null) {
+            return true;
+        }
+        if ("true".equalsIgnoreCase(value.strip())) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value.strip())) {
+            return false;
+        }
+        throw new LlmException("llm.invalidStream");
     }
 
     private static String required(Map<String, String> environment, String name) {
@@ -73,6 +93,7 @@ record LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, 
 
     @Override
     public String toString() {
-        return "LlmSettings[model=" + model + ", apiKey=<redacted>, timeout=" + timeout + "]";
+        return "LlmSettings[model=" + model + ", apiKey=<redacted>, timeout=" + timeout
+                + ", stream=" + stream + "]";
     }
 }

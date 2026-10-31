@@ -10,17 +10,22 @@ import edu.mentorj.api.AgentResponse;
 import edu.mentorj.api.Citation;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
+import edu.mentorj.api.StreamListener;
 import edu.mentorj.api.Tool;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -37,14 +42,18 @@ public class ChatCompletionsLlmServiceTest {
     private URI endpoint;
     private volatile int status;
     private volatile String response;
+    private volatile String contentType;
     private volatile long delayMillis;
     private final AtomicReference<String> authorization = new AtomicReference<>();
+    private final AtomicReference<String> accept = new AtomicReference<>();
     private final AtomicReference<String> method = new AtomicReference<>();
     private final AtomicReference<JsonObject> received = new AtomicReference<>();
+    private final CountDownLatch releaseSlowStream = new CountDownLatch(1);
 
     @Before
     public void startServer() throws Exception {
         status = 200;
+        contentType = "application/json";
         response = """
                 {"choices":[{"finish_reason":"stop","message":{
                   "role":"assistant","content":"你好，Java！","tool_calls":null}}]}
@@ -52,6 +61,7 @@ public class ChatCompletionsLlmServiceTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
             authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            accept.set(exchange.getRequestHeaders().getFirst("Accept"));
             method.set(exchange.getRequestMethod());
             received.set(JsonParser.parseString(new String(
                     exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject());
@@ -60,11 +70,28 @@ public class ChatCompletionsLlmServiceTest {
                     Thread.sleep(delayMillis);
                 }
                 byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.getResponseHeaders().set("Content-Type", contentType);
                 exchange.sendResponseHeaders(status, bytes.length);
                 exchange.getResponseBody().write(bytes);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        server.createContext("/v1/stream/slow", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                exchange.getResponseBody().write(("data: " + contentEvent("partial") + "\n\n")
+                        .getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+                releaseSlowStream.await(3, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ignored) {
+                // The client timed out and closed the stream, which is what this test expects.
             } finally {
                 exchange.close();
             }
@@ -76,6 +103,7 @@ public class ChatCompletionsLlmServiceTest {
 
     @After
     public void stopServer() {
+        releaseSlowStream.countDown();
         if (server != null) {
             server.stop(0);
         }
@@ -215,6 +243,69 @@ public class ChatCompletionsLlmServiceTest {
         assertThrows(LlmException.class, () -> service(Duration.ofSeconds(5)).complete(request));
     }
 
+    private static String sse(String... events) {
+        StringBuilder body = new StringBuilder();
+        for (String event : events) {
+            body.append("data: ").append(event).append("\n\n");
+        }
+        return body.append("data: [DONE]\n\n").toString();
+    }
+
+    private static String contentEvent(String text) {
+        return event(textDelta(text));
+    }
+
+    private static JsonObject textDelta(String text) {
+        JsonObject delta = new JsonObject();
+        delta.addProperty("content", text);
+        return delta;
+    }
+
+    private static String finishEvent(String reason) {
+        JsonObject choice = new JsonObject();
+        choice.addProperty("index", 0);
+        choice.addProperty("finish_reason", reason);
+        choice.add("delta", new JsonObject());
+        JsonArray choices = new JsonArray();
+        choices.add(choice);
+        JsonObject event = new JsonObject();
+        event.add("choices", choices);
+        return event.toString();
+    }
+
+    private static String event(JsonObject delta) {
+        JsonObject choice = new JsonObject();
+        choice.addProperty("index", 0);
+        choice.add("delta", delta);
+        JsonArray choices = new JsonArray();
+        choices.add(choice);
+        JsonObject event = new JsonObject();
+        event.add("choices", choices);
+        return event.toString();
+    }
+
+    private static JsonObject toolDelta(String id, String name, String arguments, int index) {
+        JsonObject function = new JsonObject();
+        if (name != null) {
+            function.addProperty("name", name);
+        }
+        if (arguments != null) {
+            function.addProperty("arguments", arguments);
+        }
+        JsonObject call = new JsonObject();
+        call.addProperty("index", index);
+        if (id != null) {
+            call.addProperty("id", id);
+            call.addProperty("type", "function");
+        }
+        call.add("function", function);
+        JsonArray calls = new JsonArray();
+        calls.add(call);
+        JsonObject delta = new JsonObject();
+        delta.add("tool_calls", calls);
+        return delta;
+    }
+
     private String toolResponse() {
         JsonObject body = JsonParser.parseString("""
                 {"choices":[{"finish_reason":"tool_calls","message":{
@@ -290,6 +381,108 @@ public class ChatCompletionsLlmServiceTest {
                 () -> new LlmSettings(endpoint, "test-secret", "course-model", Duration.ofSeconds(5), 4096), http)
                 .complete(request());
         assertEquals(4096, received.get().get("max_tokens").getAsInt());
+    }
+
+    @Test
+    public void streamsTextDeltasAndReturnsTheWholeAnswer() {
+        contentType = "text/event-stream";
+        response = sse(contentEvent("封装"), contentEvent("是隐藏实现"), finishEvent("stop"));
+        List<String> deltas = new ArrayList<>();
+        LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
+        assertEquals(List.of("封装", "是隐藏实现"), deltas);
+        assertEquals("封装是隐藏实现", result.content());
+        assertTrue(result.toolCalls().isEmpty());
+        assertTrue(received.get().get("stream").getAsBoolean());
+        assertEquals("text/event-stream", accept.get());
+    }
+
+    @Test
+    public void assemblesToolCallFragmentsWithoutEmittingThemAsText() {
+        contentType = "text/event-stream";
+        response = sse(
+                event(toolDelta("call_search", "search_course_material", "{\"query\":", 0)),
+                event(toolDelta(null, null, "\"JUnit\"}", 0)),
+                finishEvent("tool_calls"));
+        List<String> deltas = new ArrayList<>();
+        LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
+        assertTrue(deltas.isEmpty());
+        assertNull(result.content());
+        assertEquals(List.of(new LlmService.ToolCall("call_search", "search_course_material",
+                "{\"query\":\"JUnit\"}")), result.toolCalls());
+    }
+
+    @Test
+    public void fallsBackToTheWholeBodyWhenTheGatewayIgnoresStreaming() {
+        List<String> deltas = new ArrayList<>();
+        LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
+        assertEquals("你好，Java！", result.content());
+        assertEquals(List.of("你好，Java！"), deltas);
+        assertTrue(received.get().get("stream").getAsBoolean());
+    }
+
+    @Test
+    public void disablesStreamingWhenTheSwitchIsOff() {
+        LlmSettings settings = new LlmSettings(endpoint, "test-secret", "course-model",
+                Duration.ofSeconds(5), 8192, false);
+        List<String> deltas = new ArrayList<>();
+        LlmService.Result result = new ChatCompletionsLlmService(() -> settings, http)
+                .complete(request(), deltas::add);
+        assertFalse(received.get().get("stream").getAsBoolean());
+        assertEquals("你好，Java！", result.content());
+        assertEquals(List.of("你好，Java！"), deltas);
+    }
+
+    @Test
+    public void reportsStreamingFailuresWithoutLeakingProviderText() {
+        contentType = "text/event-stream";
+        response = sse(event(textDelta("shown")), finishEvent("length"));
+        LlmService.Result partial = service(Duration.ofSeconds(5)).complete(request(), delta -> { });
+        assertTrue(partial.content().startsWith("【回答未完成】"));
+        assertTrue(partial.content().endsWith("shown"));
+        for (String[] scenario : List.of(
+                new String[]{sse(finishEvent("content_filter")), "过滤"},
+                new String[]{sse(event(toolDelta("call_1", "search", "{", 0)), finishEvent("length")),
+                        "本轮工具尚未执行"},
+                new String[]{"data: not-json\n\n", "无效"},
+                new String[]{"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,"
+                        + "\"function\":[]}]}}]}\n\n", "无效"},
+                new String[]{"data: {\"error\":{\"message\":\"secret provider detail\"}}\n\n", "无效"})) {
+            response = scenario[0];
+            LlmException error = assertThrows(scenario[0], LlmException.class,
+                    () -> service(Duration.ofSeconds(5)).complete(request(), delta -> { }));
+            assertTrue(error.getMessage().contains(scenario[1]));
+            assertFalse(error.getMessage().contains("secret provider detail"));
+        }
+    }
+
+    @Test
+    public void stopsStreamingWhenTheListenerCancels() {
+        contentType = "text/event-stream";
+        response = sse(contentEvent("first"), contentEvent("second"));
+        StreamListener listener = new StreamListener() {
+            @Override
+            public void onText(String delta) {
+            }
+
+            @Override
+            public boolean isCancelled() {
+                return true;
+            }
+        };
+        LlmException error = assertThrows(LlmException.class,
+                () -> service(Duration.ofSeconds(5)).complete(request(), listener));
+        assertTrue(error.getMessage().contains("取消"));
+    }
+
+    @Test
+    public void reportsStalledStreamsAsTimeouts() {
+        LlmSettings settings = new LlmSettings(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/stream/slow"),
+                "test-secret", "course-model", Duration.ofMillis(300));
+        LlmException error = assertThrows(LlmException.class,
+                () -> new ChatCompletionsLlmService(() -> settings, http)
+                        .complete(request(), delta -> { }));
+        assertTrue(error.getMessage().contains("超时"));
     }
 
     @Test
