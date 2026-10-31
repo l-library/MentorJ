@@ -1,0 +1,7 @@
+<svg width="16" height="16" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Mortarboard: the course context, kept as a flat silhouette so it stays readable at 16 px. -->
+    <path d="M20 3.2 34 8.7 20 14.2 6 8.7Z" fill="#7C6BFF"/>
+    <!-- Speech bubble with a tail: MentorJ is a chat-first teaching assistant. -->
+    <path d="M11 33 8 38.5 20 33.5Z" fill="#7C6BFF"/>
+    <rect x="6" y="18" width="28" height="14.5" rx="5" stroke="#7C6BFF" stroke-width="3"/>
+</svg>
