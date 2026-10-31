@@ -13,6 +13,8 @@
 - Actionable LLM configuration and request errors, plus local HTTP and agent integration tests.
 - GitHub Actions CI pipeline running Checkstyle lint, build, tests, and plugin verification on pushes and pull requests to `main`.
 - Course material retrieval: PDFs are parsed into page-level knowledge chunks and indexed with BM25 plus semantic embeddings, so answers cite the source document and page. Questions the material does not cover are reported as general knowledge only.
+- Sidebar TA chat with cited sources and the general-knowledge notice, plus a course material panel that imports PDFs with progress, reports failures and shows index statistics.
+- Editor and Tools menu entries for asking about selected code, generating JUnit tests from a natural-language scenario, and generating a commit message from the staged diff, each running off the EDT with cancellation.
 
 ### Changed
 
