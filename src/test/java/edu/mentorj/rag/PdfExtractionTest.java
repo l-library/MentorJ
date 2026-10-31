@@ -7,7 +7,10 @@ import org.apache.tika.Tika;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.file.Path;
+import java.util.Objects;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -23,7 +26,14 @@ import static org.junit.Assert.assertTrue;
 public class PdfExtractionTest {
 
     private static Path fixture() {
-        return Path.of(PdfExtractionTest.class.getResource("/documents/two-pages.pdf").getPath());
+        // 走 URI 而不是 getPath()：Windows 上 getPath() 会给出 "/E:/..." 这种带前导斜杠的串，
+        // Path.of 直接抛 InvalidPathException，测试只在 Windows 上挂。
+        URL resource = Objects.requireNonNull(PdfExtractionTest.class.getResource("/documents/two-pages.pdf"));
+        try {
+            return Path.of(resource.toURI());
+        } catch (URISyntaxException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Test

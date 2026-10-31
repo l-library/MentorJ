@@ -4,9 +4,12 @@ import edu.mentorj.api.KnowledgeChunk;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -110,6 +113,12 @@ public class DocumentProcessorTest {
     }
 
     private static Path fixture() {
-        return Path.of(DocumentProcessorTest.class.getResource("/documents/two-pages.pdf").getPath());
+        // 同 PdfExtractionTest：Windows 下 getPath() 带前导斜杠，必须走 URI。
+        URL resource = Objects.requireNonNull(DocumentProcessorTest.class.getResource("/documents/two-pages.pdf"));
+        try {
+            return Path.of(resource.toURI());
+        } catch (URISyntaxException e) {
+            throw new IllegalStateException(e);
+        }
     }
 }
