@@ -61,6 +61,21 @@ final class ChatStyles {
         return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
     }
 
+    static String escapeHtml(String text) {
+        StringBuilder escaped = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            switch (c) {
+                case '&' -> escaped.append("&amp;");
+                case '<' -> escaped.append("&lt;");
+                case '>' -> escaped.append("&gt;");
+                case '"' -> escaped.append("&quot;");
+                default -> escaped.append(c);
+            }
+        }
+        return escaped.toString();
+    }
+
     /** Rules Swing's HTML renderer understands; rounded corners are painted by the card itself. */
     static String css() {
         return "p { margin-top: 0; margin-bottom: 6px; }\n"

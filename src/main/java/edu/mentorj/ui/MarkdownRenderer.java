@@ -110,9 +110,9 @@ final class MarkdownRenderer {
             HtmlWriter writer = context.getWriter();
             writer.raw("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"6\" bgcolor=\""
                     + codeStyle.background() + "\">");
-            writer.raw("<tr><td><font color=\"" + codeStyle.label() + "\" size=\"-1\">" + escape(label)
+            writer.raw("<tr><td><font color=\"" + codeStyle.label() + "\" size=\"-1\">" + ChatStyles.escapeHtml(label)
                     + "</font></td><td align=\"right\"><font size=\"-1\"><a href=\"copy:" + id + "\">"
-                    + escape(copyLabel) + "</a></font></td></tr>");
+                    + ChatStyles.escapeHtml(copyLabel) + "</a></font></td></tr>");
             writer.raw("<tr><td colspan=\"2\"><font face=\"Monospaced\" color=\"" + codeStyle.text() + "\">");
             writer.raw(paint(code, language));
             writer.raw("</font></td></tr></table>");
@@ -193,14 +193,6 @@ final class MarkdownRenderer {
         String value = info.strip();
         int space = value.indexOf(' ');
         return space < 0 ? value : value.substring(0, space);
-    }
-
-    private static String escape(String text) {
-        StringBuilder escaped = new StringBuilder(text.length());
-        for (int i = 0; i < text.length(); i++) {
-            escaped.append(escape(text.charAt(i)));
-        }
-        return escaped.toString();
     }
 
     private static String escape(char c) {
