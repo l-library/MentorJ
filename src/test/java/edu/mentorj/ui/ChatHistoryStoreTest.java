@@ -52,13 +52,16 @@ public class ChatHistoryStoreTest {
         List<ChatMessage> messages = new ArrayList<>();
         for (int i = 0; i < 60; i++) {
             messages.add(new ChatMessage(ChatMessage.Role.USER, "q" + i));
+            ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "a" + i);
+            answer.done("a" + i, List.of(), false);
+            messages.add(answer);
         }
         store.save(messages);
 
         List<ChatMessage> loaded = store.load();
         assertEquals(50, loaded.size());
-        assertEquals("q10", loaded.get(0).text());
-        assertEquals("q59", loaded.get(49).text());
+        assertEquals("q35", loaded.get(0).text());
+        assertEquals("a59", loaded.get(49).text());
     }
 
     @Test

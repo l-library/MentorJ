@@ -13,7 +13,7 @@ public class MarkdownRendererTest {
 
     private final MarkdownRenderer renderer = new MarkdownRenderer(
             (code, language) -> List.of(new MarkdownRenderer.Run(code, Color.RED, false, false)),
-            "复制", new ChatStyles.CodeStyle("#f7f8fa", "#888888", "#111111"));
+            "复制", null, new ChatStyles.CodeStyle("#f7f8fa", "#888888", "#111111"));
 
     @Test
     public void rendersInlineMarkdownAndGfmTables() {
@@ -85,9 +85,17 @@ public class MarkdownRendererTest {
     }
 
     @Test
+    public void addsAnInsertLinkOnlyWhenRequested() {
+        MarkdownRenderer withInsert = new MarkdownRenderer((code, language) -> List.of(),
+                "复制", "插入", new ChatStyles.CodeStyle("#fff", "#888", "#111"));
+        assertTrue(withInsert.render("```\nx\n```").html().contains("insert:code-0"));
+        assertFalse(renderer.render("```\nx\n```").html().contains("insert:"));
+    }
+
+    @Test
     public void escapesCodeForTheFallbackPainter() {
         MarkdownRenderer plain = new MarkdownRenderer((code, language) -> List.of(),
-                "copy", new ChatStyles.CodeStyle("#fff", "#888", "#111"));
+                "copy", null, new ChatStyles.CodeStyle("#fff", "#888", "#111"));
         String html = plain.render("```java\nif (a < b) { c(\"x\"); }\n```").html();
         assertTrue(html.contains("if (a &lt; b) { c(&quot;x&quot;); }"));
     }

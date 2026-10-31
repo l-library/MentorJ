@@ -77,9 +77,24 @@ final class ChatHistoryStore {
         try {
             JsonObject root = new JsonObject();
             JsonArray array = new JsonArray();
-            for (ChatMessage message : trimmed(messages)) {
+            List<ChatMessage> completed = new ArrayList<>();
+            for (ChatMessage message : messages) {
+                // A cancelled or failed answer is not worth restoring as a normal turn.
+                if (message.role() == ChatMessage.Role.ASSISTANT && message.state() != ChatMessage.State.DONE) {
+                    continue;
+                }
+                completed.add(message);
+            }
+            List<ChatMessage> persistable = trimmed(completed);
+            for (int i = 0; i < persistable.size(); i++) {
+                ChatMessage message = persistable.get(i);
                 if (message.text().isBlank()) {
                     continue;
+                }
+                if (message.role() == ChatMessage.Role.USER
+                        && (i + 1 >= persistable.size()
+                        || persistable.get(i + 1).role() != ChatMessage.Role.ASSISTANT)) {
+                    continue;    // a question without its completed answer stays session-local
                 }
                 JsonObject item = new JsonObject();
                 item.addProperty("role", message.role().name());

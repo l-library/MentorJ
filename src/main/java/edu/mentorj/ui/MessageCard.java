@@ -11,6 +11,7 @@ import edu.mentorj.api.Citation;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JPanel;
 import javax.swing.Timer;
@@ -20,15 +21,18 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.FlowLayout;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionListener;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.IntSupplier;
 
 /**
@@ -44,6 +48,8 @@ final class MessageCard extends JPanel {
     private final ChatMessage message;
     private final MarkdownRenderer renderer;
     private final IntSupplier widthSupplier;
+    private final Consumer<String> insertCode;
+    private final JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
     private final int padH = JBUI.scale(10);
     private final int padV = JBUI.scale(8);
     private final int arc = JBUI.scale(12);
@@ -56,13 +62,20 @@ final class MessageCard extends JPanel {
     private Dimension preferred;
     private int cachedWidth = -1;
     private String footerSignature;
+    private JButton retryAction;
 
     MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer,
                 @NotNull IntSupplier widthSupplier) {
+        this(message, renderer, widthSupplier, null);
+    }
+
+    MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer,
+                @NotNull IntSupplier widthSupplier, Consumer<String> insertCode) {
         super(new BorderLayout());
         this.message = message;
         this.renderer = renderer;
         this.widthSupplier = widthSupplier;
+        this.insertCode = insertCode;
         setOpaque(false);
 
         JPanel content = new JPanel(new BorderLayout(0, JBUI.scale(4)));
@@ -75,7 +88,18 @@ final class MessageCard extends JPanel {
         content.add(body, BorderLayout.CENTER);
         footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
         footer.setOpaque(false);
-        content.add(footer, BorderLayout.SOUTH);
+        actions.setOpaque(false);
+        actions.setVisible(false);
+        if (message.role() == ChatMessage.Role.ASSISTANT) {
+            actions.add(actionButton(MentorJBundle.message("chat.copy"), event -> copyAnswer()));
+            actions.setVisible(true);
+        }
+        JPanel south = new JPanel();
+        south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
+        south.setOpaque(false);
+        south.add(footer);
+        south.add(actions);
+        content.add(south, BorderLayout.SOUTH);
         add(content, BorderLayout.CENTER);
 
         status.setFont(JBUI.Fonts.smallFont());
@@ -138,6 +162,13 @@ final class MessageCard extends JPanel {
         if (target == null) {
             return;
         }
+        if (target.startsWith("insert:")) {
+            String code = codeBlocks.get(target.substring("insert:".length()));
+            if (code != null && insertCode != null) {
+                insertCode.accept(code);
+            }
+            return;
+        }
         if (target.startsWith("copy:")) {
             String code = codeBlocks.get(target.substring("copy:".length()));
             if (code != null) {
@@ -153,6 +184,39 @@ final class MessageCard extends JPanel {
                 // A browser failure must not break the transcript.
             }
         }
+    }
+
+    /** Adds the regenerate button to the newest answer; older cards have it removed by the transcript. */
+    void setRetryAction(JButton button) {
+        if (retryAction != null) {
+            actions.remove(retryAction);
+            retryAction = null;
+        }
+        if (button != null) {
+            retryAction = button;
+            actions.add(button);
+        }
+        actions.setVisible(actions.getComponentCount() > 0);
+        preferred = null;
+        cachedWidth = -1;
+        revalidate();
+        repaint();
+    }
+
+    private void copyAnswer() {
+        CopyPasteManager.getInstance().setContents(new StringSelection(message.text()));
+        showCopied();
+    }
+
+    private static JButton actionButton(String text, ActionListener listener) {
+        JButton button = new JButton(text);
+        button.setBorderPainted(false);
+        button.setContentAreaFilled(false);
+        button.setFocusPainted(false);
+        button.setForeground(ChatStyles.link());
+        button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        button.addActionListener(listener);
+        return button;
     }
 
     private void showCopied() {
@@ -210,29 +274,36 @@ final class MessageCard extends JPanel {
         footer.repaint();
     }
 
+    private boolean isError() {
+        return message.role() == ChatMessage.Role.ERROR || message.state() == ChatMessage.State.FAILED;
+    }
+
     private Color foreground() {
-        return switch (message.role()) {
-            case NOTICE -> ChatStyles.mutedText();
-            case ERROR -> ChatStyles.errorText();
-            default -> ChatStyles.text();
-        };
+        if (isError()) {
+            return ChatStyles.errorText();
+        }
+        return message.role() == ChatMessage.Role.NOTICE ? ChatStyles.mutedText() : ChatStyles.text();
     }
 
     private Color background() {
+        if (isError()) {
+            return ChatStyles.errorCard();
+        }
         return switch (message.role()) {
             case USER -> ChatStyles.userBubble();
-            case ERROR -> ChatStyles.errorCard();
             case ASSISTANT -> ChatStyles.card();
-            case NOTICE -> null;
+            case NOTICE, ERROR -> null;
         };
     }
 
     private Color border() {
+        if (isError()) {
+            return ChatStyles.errorBorder();
+        }
         return switch (message.role()) {
             case USER -> ChatStyles.userBorder();
-            case ERROR -> ChatStyles.errorBorder();
             case ASSISTANT -> ChatStyles.cardBorder();
-            case NOTICE -> null;
+            case NOTICE, ERROR -> null;
         };
     }
 
@@ -254,6 +325,9 @@ final class MessageCard extends JPanel {
         }
         if (footer.getComponentCount() > 0) {
             height += footer.getPreferredSize().height + JBUI.scale(4);
+        }
+        if (actions.isVisible() && actions.getComponentCount() > 0) {
+            height += actions.getPreferredSize().height + JBUI.scale(4);
         }
         preferred = new Dimension(cardWidth, Math.max(JBUI.scale(36), height));
         cachedWidth = available;

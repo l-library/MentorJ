@@ -41,17 +41,23 @@ final class MarkdownRenderer {
 
     private final CodePainter painter;
     private final String copyLabel;
+    private final String insertLabel;
     private final ChatStyles.CodeStyle codeStyle;
     private final List<Extension> extensions;
     private final Parser parser;
 
     MarkdownRenderer(CodePainter painter, String copyLabel) {
-        this(painter, copyLabel, ChatStyles.codeStyle());
+        this(painter, copyLabel, null, ChatStyles.codeStyle());
     }
 
-    MarkdownRenderer(CodePainter painter, String copyLabel, ChatStyles.CodeStyle codeStyle) {
+    MarkdownRenderer(CodePainter painter, String copyLabel, String insertLabel) {
+        this(painter, copyLabel, insertLabel, ChatStyles.codeStyle());
+    }
+
+    MarkdownRenderer(CodePainter painter, String copyLabel, String insertLabel, ChatStyles.CodeStyle codeStyle) {
         this.painter = painter;
         this.copyLabel = copyLabel;
+        this.insertLabel = insertLabel;
         this.codeStyle = codeStyle;
         this.extensions = List.of(TablesExtension.create(), StrikethroughExtension.create());
         this.parser = Parser.builder().extensions(extensions).build();
@@ -110,9 +116,12 @@ final class MarkdownRenderer {
             HtmlWriter writer = context.getWriter();
             writer.raw("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"6\" bgcolor=\""
                     + codeStyle.background() + "\">");
+            String links = "<a href=\"copy:" + id + "\">" + ChatStyles.escapeHtml(copyLabel) + "</a>";
+            if (insertLabel != null) {
+                links += " | <a href=\"insert:" + id + "\">" + ChatStyles.escapeHtml(insertLabel) + "</a>";
+            }
             writer.raw("<tr><td><font color=\"" + codeStyle.label() + "\" size=\"-1\">" + ChatStyles.escapeHtml(label)
-                    + "</font></td><td align=\"right\"><font size=\"-1\"><a href=\"copy:" + id + "\">"
-                    + ChatStyles.escapeHtml(copyLabel) + "</a></font></td></tr>");
+                    + "</font></td><td align=\"right\"><font size=\"-1\">" + links + "</font></td></tr>");
             writer.raw("<tr><td colspan=\"2\"><font face=\"Monospaced\" color=\"" + codeStyle.text() + "\">");
             writer.raw(paint(code, language));
             writer.raw("</font></td></tr></table>");

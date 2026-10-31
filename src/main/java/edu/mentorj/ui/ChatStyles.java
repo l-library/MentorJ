@@ -49,6 +49,10 @@ final class ChatStyles {
         return ERROR_TEXT;
     }
 
+    static Color link() {
+        return LINK;
+    }
+
     static Color mutedText() {
         return UIUtil.getContextHelpForeground();
     }
