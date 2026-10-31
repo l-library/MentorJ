@@ -128,6 +128,14 @@ final class AgentRequests {
         new ResultDialog(project, title, request).show();
     }
 
+    /**
+     * agent 侧的错误回答不带引用、也不带通用知识标志；正常回答两者必有其一（见 API.md 全局规则）。
+     * 界面据此把配置/网络错误渲染成错误卡片，而不是普通回答。
+     */
+    static boolean isError(@NotNull AgentResponse response) {
+        return response.citations().isEmpty() && !response.generalKnowledgeOnly();
+    }
+
     /** 把未预期的异常转成用户能读的一句话，不暴露堆栈。 */
     static @NotNull String unexpected(@NotNull Throwable error) {
         String detail = error.getMessage();

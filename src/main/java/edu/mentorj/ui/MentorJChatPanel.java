@@ -287,13 +287,19 @@ final class MentorJChatPanel extends JPanel implements Disposable {
                         if (disposed || answer != streaming) {
                             return;
                         }
-                        answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                        if (AgentRequests.isError(response)) {
+                            answer.failed(response.text());
+                        } else {
+                            answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                        }
                         answer.elapsed((System.nanoTime() - started) / 1_000_000);
                         transcript.refresh(answer);
                         finishTurn();
                         requests.put(answer, request);
                         transcript.setRetryAction(answer, retryButton(answer));
-                        saveHistory();
+                        if (!AgentRequests.isError(response)) {
+                            saveHistory();
+                        }
                     }
 
                     @Override

@@ -85,7 +85,11 @@ final class ResultDialog extends DialogWrapper implements Disposable {
                 if (disposed) {
                     return;
                 }
-                answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                if (AgentRequests.isError(response)) {
+                    answer.failed(response.text());
+                } else {
+                    answer.done(response.text(), response.citations(), response.generalKnowledgeOnly());
+                }
                 answer.elapsed((System.nanoTime() - started) / 1_000_000);
                 transcript.refresh(answer);
                 stopAction.setEnabled(false);
