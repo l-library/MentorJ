@@ -153,7 +153,7 @@ final class ChatTranscript extends JPanel {
         return bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - STICK_THRESHOLD;
     }
 
-    private void scrollToBottom() {
+    void scrollToBottom() {
         ApplicationManager.getApplication().invokeLater(() -> {
             JScrollBar bar = scroll.getVerticalScrollBar();
             bar.setValue(bar.getMaximum());

@@ -239,7 +239,6 @@ final class MentorJChatPanel extends JPanel implements Disposable {
         if (question.isEmpty()) {
             return;
         }
-        updateSelection();
         EditorContext context = attachedContext;
         input.setText("");
         resizeInput();
@@ -402,6 +401,9 @@ final class MentorJChatPanel extends JPanel implements Disposable {
             transcript.add(message);
         }
         centerCards.show(center, stored.isEmpty() ? "empty" : "chat");
+        if (!stored.isEmpty()) {
+            transcript.scrollToBottom();
+        }
     }
 
     private void saveHistory() {
