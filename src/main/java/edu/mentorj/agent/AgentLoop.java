@@ -130,7 +130,14 @@ public final class AgentLoop implements AgentService {
                     throw new LlmException("agent.diffRequired");
                 }
             }
-            case CREATIVE -> throw new LlmException("agent.creativeUnavailable");
+            case CREATIVE -> {
+                // 创意动作围绕给定代码出题，没有代码就没有出题对象。
+                if (request.editorContext() == null
+                        || (blank(request.editorContext().selectedCode())
+                        && blank(request.editorContext().sourceCode()))) {
+                    throw new LlmException("agent.practiceCodeRequired");
+                }
+            }
         }
     }
 
@@ -140,7 +147,7 @@ public final class AgentLoop implements AgentService {
         }
         try {
             checkInterrupted();
-            List<KnowledgeChunk> chunks = knowledgeBase.retrieve(request.userInput(), TOP_K).stream()
+            List<KnowledgeChunk> chunks = knowledgeBase.retrieve(retrievalQuery(request), TOP_K).stream()
                     .limit(TOP_K).toList();
             checkInterrupted();
             if (chunks.stream().anyMatch(c -> c == null || blank(c.text())
@@ -154,6 +161,18 @@ public final class AgentLoop implements AgentService {
             checkInterrupted();
             throw new LlmException("agent.retrievalFailed");
         }
+    }
+
+    /**
+     * 检索用查询：创意动作允许用户不写补充要求，此时用选中代码（或整个文件）检索，
+     * 既避免空串进入检索，也比一句泛泛的“帮我出题”更贴近代码里的知识点。
+     */
+    private String retrievalQuery(AgentRequest request) {
+        if (blank(request.userInput()) && request.editorContext() != null) {
+            String selected = request.editorContext().selectedCode();
+            return blank(selected) ? request.editorContext().sourceCode() : selected;
+        }
+        return request.userInput();
     }
 
     private LlmService.Result complete(AgentRequest request, List<LlmService.Message> messages,

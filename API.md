@@ -54,11 +54,17 @@ src/main/java/edu/mentorj/
 │   ├── RagDocumentLibrary.java DocumentLibrary 实现：导入 → 切块 → 建索引 → 落盘
 │   └── RagKnowledgeBase.java   KnowledgeBase 实现（BM25 + 可选 embedding 混合检索）
 ├── ui/                         界面组：侧边栏、右键菜单、智能操作入口
+│   ├── AgentRequests.java      统一的 agent 调用：后台执行、取消与结果文案
 │   ├── AskCodeAction.java      编辑器右键：就选中代码提问
+│   ├── CourseMaterialPanel.java          侧边栏顶部：导入 / 清空 / 索引统计
 │   ├── EditorContexts.java     编辑器上下文采集
 │   ├── GenerateCommitMessageAction.java  生成 Git 提交消息
+│   ├── GeneratePracticeAction.java       生成练习题（创意智能操作）
 │   ├── GenerateUnitTestAction.java       生成单元测试
-│   └── MentorJToolWindowFactory.java     侧边栏 tool window
+│   ├── MentorJChatPanel.java             侧边栏对话区：提问、对话记录、引用展示
+│   ├── MentorJToolWindowFactory.java     侧边栏 tool window 装配
+│   ├── ResultDialog.java       只读结果对话框，带复制
+│   └── StagedDiff.java         采集 git diff --cached 作为 staged 改动
 ├── MentorJBundle.java          文案 bundle 访问器
 └── MentorJProjectService.java  组装点：构造知识库、工具、AgentService
 ```
@@ -69,7 +75,7 @@ src/main/java/edu/mentorj/
 
 | 类型 | 字段 | 语义 |
 | --- | --- | --- |
-| `AgentAction` | `ASK`、`GENERATE_UNIT_TEST`、`GENERATE_COMMIT_MESSAGE`、`CREATIVE` | 一次请求要做的事；`CREATIVE` 为创意智能操作预留 |
+| `AgentAction` | `ASK`、`GENERATE_UNIT_TEST`、`GENERATE_COMMIT_MESSAGE`、`CREATIVE` | 一次请求要做的事；`CREATIVE` 为创意智能操作（围绕选中代码生成课后练习题） |
 | `AgentRequest` | `action`、`userInput`、`editorContext`、`stagedDiff` | 见下方「各操作对字段的要求」 |
 | `AgentResponse` | `text`、`citations`、`generalKnowledgeOnly` | `text` 为回答正文；`citations` 为提供给 LLM 的知识块来源；`generalKnowledgeOnly` 为 `true` 表示没有检索到课程材料 |
 | `Citation` | `document`、`pageOrScope` | 一条来源引用：来源文档 + 页码或范围 |
@@ -86,7 +92,7 @@ src/main/java/edu/mentorj/
 | `ASK` | 用户的问题（必填） | 可选，右键提问时带选中代码 | 不用 |
 | `GENERATE_UNIT_TEST` | 自然语言描述的测试场景 / 需求（必填，来自文本输入框） | 必填，`selectedCode` 或 `sourceCode` 为选中的类 / 方法 | 不用 |
 | `GENERATE_COMMIT_MESSAGE` | 可空 | 不用 | 必填，staged 改动（git diff 格式），界面组采集 |
-| `CREATIVE` | 待定 | 待定 | 待定 |
+| `CREATIVE` | 可选，练习的侧重点 / 难度 / 题型；为空时用选中代码检索并自行设计 | 必填，`selectedCode` 或 `sourceCode` 为出题对象 | 不用 |
 
 ### 2.2 接口
 
@@ -158,6 +164,7 @@ public interface Tool {
 2. **右键就选中代码提问**：界面组用 `EditorContexts` 采集 `EditorContext` → 同 1（`ASK`）。
 3. **单测生成**：界面组弹文本输入框收集自然语言场景 → `respond(GENERATE_UNIT_TEST)` → agent 核心组按场景 + 上下文代码生成 JUnit 测试类 → 界面组展示。
 4. **commit message 生成**：界面组采集 staged diff → `respond(GENERATE_COMMIT_MESSAGE)` → agent 核心组分析语义意图并按 Conventional Commits 生成消息 → 界面组展示。
+5. **练习题生成（创意动作）**：界面组弹出可留空的文本输入框收集侧重 / 难度 → `respond(CREATIVE)` → agent 核心组用选中代码或用户输入作检索查询，结合课程材料列出知识点并出 3 道题与参考答案 → 界面组展示。
 
 智能操作分工：**界面组**负责触发入口、文本输入框、上下文采集与结果展示；**agent 核心组**负责生成提示词与生成调用；**RAG 和其他组**不参与智能操作本身。
 
@@ -181,7 +188,9 @@ public interface Tool {
 
 ## 6. 待定事项
 
-- 创意智能操作（`CREATIVE`）的具体方案：待定，枚举与请求字段已预留。
+- 创意智能操作（`CREATIVE`）：已定为“围绕选中代码生成课后练习题”。先列出代码涉及的课程知识点，
+  再由易到难出 3 道题并给出参考答案；`userInput` 可空，为空时用选中代码（或整个文件）作为检索查询。
+  UI 入口是编辑器右键的「生成练习题」。
 - LLM 服务供应商：同济 AI 服务平台，默认 Base URL 为 `https://agi.tongji.edu.cn/v1`，
   模型为 `DeepSeek-V4.1-Flash`。API Key 通过本地环境变量配置，地址和模型可覆盖，见 README。
 - 原生工具调用：本地适配器与循环已实现兼容协议，使用模拟 HTTP 服务验证；
