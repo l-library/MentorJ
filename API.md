@@ -55,16 +55,23 @@ src/main/java/edu/mentorj/
 │   ├── RagDocumentLibrary.java DocumentLibrary 实现：导入 → 切块 → 建索引 → 落盘
 │   └── RagKnowledgeBase.java   KnowledgeBase 实现（BM25 + 可选 embedding 混合检索）
 ├── ui/                         界面组：侧边栏、右键菜单、智能操作入口
-│   ├── AgentRequests.java      统一的 agent 调用：后台执行、取消与结果文案
+│   ├── AgentRequests.java      统一的 agent 调用：后台执行、流式合并、取消与结果文案
 │   ├── AskCodeAction.java      编辑器右键：就选中代码提问
+│   ├── ChatHistoryStore.java   侧边栏历史持久化（.idea/mentorj-chat.json）
+│   ├── ChatMessage.java        一条问答 / 提示的展示模型
+│   ├── ChatStyles.java         主题颜色、字体与卡片 HTML 规则
+│   ├── ChatTranscript.java     消息卡片列表：滚动、自动贴底、回到最新
+│   ├── CodeHighlighter.java    代码块按 IDE 配色高亮
 │   ├── CourseMaterialPanel.java          侧边栏顶部：导入 / 清空 / 索引统计
 │   ├── EditorContexts.java     编辑器上下文采集
 │   ├── GenerateCommitMessageAction.java  生成 Git 提交消息
 │   ├── GeneratePracticeAction.java       生成练习题（创意智能操作）
 │   ├── GenerateUnitTestAction.java       生成单元测试
-│   ├── MentorJChatPanel.java             侧边栏对话区：提问、对话记录、引用展示
+│   ├── MarkdownRenderer.java   Markdown → HTML（表格、代码块、转义）
+│   ├── MentorJChatPanel.java             侧边栏对话区：提问、消息卡片、选中代码、历史
 │   ├── MentorJToolWindowFactory.java     侧边栏 tool window 装配
-│   ├── ResultDialog.java       只读结果对话框，带复制
+│   ├── MessageCard.java        单条消息卡片：用户气泡 / 助教卡片 / 错误卡片
+│   ├── ResultDialog.java       结果对话框：打开即流式、可停止、可复制
 │   └── StagedDiff.java         采集 git diff --cached 作为 staged 改动
 ├── MentorJBundle.java          文案 bundle 访问器
 └── MentorJProjectService.java  组装点：构造知识库、工具、AgentService
@@ -216,7 +223,7 @@ public interface Tool {
 ## 5. 联调检查单
 
 - [ ] `./gradlew build` 通过（改动 plugin.xml 或依赖时加跑 `./gradlew verifyPlugin`）
-- [ ] `./gradlew runIde`：侧边栏能看到 MentorJ tool window；编辑器右键菜单有两个智能操作入口
+- [ ] `./gradlew runIde`：侧边栏能看到 MentorJ tool window；编辑器右键菜单有三个智能操作入口（就选中代码提问 / 生成单元测试 / 生成练习题）
 - [ ] 提问流程：有问题 + 有检索结果时展示引用（文档 + 页码/范围）；无检索结果时展示通用知识声明
 - [ ] 流式：正文增量拼接等于最终回答；工具轮次清空此前文字并显示工具状态；取消在 1 秒内停止且保留已收到内容
 - [ ] 导入流程：导入课件后返回统计；重启 IDE 后仍能检索到带页码的引用；导入非 PDF 文件时展示失败原因而非静默失败

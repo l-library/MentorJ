@@ -32,6 +32,8 @@ Install Plugin from Disk` 选中该 zip，重启即可。装好后任何项目�
 | `MENTORJ_LLM_BASE_URL` | 否 | `https://agi.tongji.edu.cn/v1` |
 | `MENTORJ_LLM_MODEL` | 否 | `DeepSeek-V4.1-Flash` |
 | `MENTORJ_LLM_STREAM` | 否 | `true`；网关不兼容流式时设为 `false` |
+| `MENTORJ_LLM_TIMEOUT_SECONDS` | 否 | `90`；请求或流式空闲超时秒数 |
+| `MENTORJ_LLM_MAX_TOKENS` | 否 | `8192`；单次回答输出上限 |
 
 环境变量必须在 **IDE 进程启动时**已经存在：
 
