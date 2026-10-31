@@ -45,6 +45,10 @@
         <action id="edu.mentorj.GenerateUnitTest" class="edu.mentorj.ui.GenerateUnitTestAction">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
+        <!-- 生成练习题：F1 的创意智能操作，编辑器右键入口。 -->
+        <action id="edu.mentorj.GeneratePractice" class="edu.mentorj.ui.GeneratePracticeAction">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
         <!-- 生成 Git 提交消息：暂挂 Tools 菜单，后续可移到 commit 对话框。 -->
         <action id="edu.mentorj.GenerateCommitMessage" class="edu.mentorj.ui.GenerateCommitMessageAction">
             <add-to-group group-id="ToolsMenu" anchor="last"/>

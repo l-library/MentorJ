@@ -60,6 +60,29 @@ public class AgentLoopTest {
     }
 
     @Test
+    public void creativeActionBuildsPracticeQuestionsFromSelectedCode() {
+        AtomicReference<String> query = new AtomicReference<>();
+        AtomicReference<LlmService.Request> sent = new AtomicReference<>();
+        AgentLoop agent = new AgentLoop((q, topK) -> {
+            query.set(q);
+            return List.of(new KnowledgeChunk("Collections and generics", "Week5.pdf", "12-14", 0.8));
+        }, request -> {
+            sent.set(request);
+            return new LlmService.Result("知识点...\n1. 题目...\n参考答案：...", List.of());
+        }, new SystemPromptBuilder(), new ToolRegistry());
+
+        // 用户不写补充要求时，检索依据是选中的代码；空查询会让检索退化成噪声。
+        AgentResponse response = agent.respond(new AgentRequest(AgentAction.CREATIVE, null,
+                new EditorContext("src/Cart.java", "class Cart {}",
+                        "List<String> items = new ArrayList<>();"), null));
+
+        assertEquals("List<String> items = new ArrayList<>();", query.get());
+        assertTrue(sent.get().systemPrompt().contains("练习题"));
+        assertEquals(List.of(new Citation("Week5.pdf", "12-14")), response.citations());
+        assertFalse(response.generalKnowledgeOnly());
+    }
+
+    @Test
     public void returnsActionableConfigurationErrorToExistingUi() {
         AgentLoop agent = new AgentLoop((query, topK) -> List.of(), request -> {
             throw new LlmException("llm.missingSetting", "MENTORJ_LLM_API_KEY");

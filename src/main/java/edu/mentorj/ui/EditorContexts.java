@@ -19,4 +19,10 @@ final class EditorContexts {
                 editor.getDocument().getText(),
                 editor.getSelectionModel().getSelectedText());
     }
+
+    /** 生成 JUnit 测试只对 Java 文件有意义，菜单项据此决定是否出现。 */
+    static boolean isJavaFile(@NotNull Editor editor) {
+        VirtualFile file = FileDocumentManager.getInstance().getFile(editor.getDocument());
+        return file != null && "java".equalsIgnoreCase(file.getExtension());
+    }
 }
