@@ -136,14 +136,14 @@ public final class RagKnowledgeBase implements KnowledgeBase {
      * Pre-gate candidate pool: both paths fused, without the relevance gate and without the per-path score
      * filters.
      *
-     * <p>Exists for the offline rerank evaluation, which has to ask whether a cross-encoder score could replace
-     * the cosine gate. It cannot be answered through {@link #retrieve}, because the gate has already emptied the
-     * result for exactly the questions under study. Not part of {@link KnowledgeBase}: no production caller and
-     * {@link #retrieve} never calls it.
+     * <p>The gate rejects on evidence that is deliberately precision-first, so the ranking can already hold the
+     * page that answers the question while retrieval returns nothing. These chunks are unverified by definition,
+     * which is why they are a separate list from {@link #retrieve} and never carry citations.
      *
      * @return up to {@code depth} chunks in fused order; empty when the query matched nothing at all
      */
-    List<KnowledgeChunk> candidates(String query, int depth) {
+    @Override
+    public List<KnowledgeChunk> lowConfidenceContext(String query, int depth) {
         if (query == null || query.isBlank() || depth <= 0) {
             return List.of();
         }

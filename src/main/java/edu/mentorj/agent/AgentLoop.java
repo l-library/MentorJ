@@ -20,16 +20,23 @@ import java.util.concurrent.CancellationException;
 
 /**
  * AgentService implementation: retrieve chunks -> assemble prompt -> call the LLM -> tool loop -> assemble the answer.
- * Chunk sources become the answer citations directly; an empty retrieval sets generalKnowledgeOnly.
+ * Chunk sources become the answer citations directly; an empty retrieval sets generalKnowledgeOnly, and the one
+ * chunk the relevance gate rejected is passed to the model as unverified context rather than discarded.
  */
 public final class AgentLoop implements AgentService {
 
     private static final int TOP_K = 5;
+    /**
+     * Unverified context is one chunk, not five: it did not pass the relevance gate, so the budget spent on it and
+     * the chance the model grounds an answer on an unrelated page both stay small.
+     */
+    private static final int LOW_CONFIDENCE_TOP_K = 1;
     private static final int MAX_TOOL_ROUNDS = 3;
     private static final int MAX_CALLS_PER_ROUND = 8;
     private static final int MAX_INPUT_CHARS = 60_000;
     private static final int MAX_CONTEXT_CHARS = 120_000;
     private static final StreamListener NO_STREAM = delta -> { };
+    private static final Retrieved NO_RETRIEVAL = new Retrieved(List.of(), List.of());
 
     private final KnowledgeBase knowledgeBase;
     private final LlmService llmService;
@@ -66,14 +73,14 @@ public final class AgentLoop implements AgentService {
     private AgentResponse generateResponse(AgentRequest request, StreamListener listener) {
         checkInterrupted(listener);
         validate(request);
-        if (userPrompt(request, List.of()).length() > MAX_INPUT_CHARS) {
+        if (userPrompt(request, NO_RETRIEVAL).length() > MAX_INPUT_CHARS) {
             throw new LlmException("agent.inputTooLarge");
         }
-        List<KnowledgeChunk> chunks = retrieve(request, listener);
+        Retrieved retrieved = retrieve(request, listener);
         Set<Citation> citations = new LinkedHashSet<>();
-        chunks.forEach(chunk -> citations.add(new Citation(chunk.document(), chunk.pageOrScope())));
+        retrieved.citable().forEach(chunk -> citations.add(new Citation(chunk.document(), chunk.pageOrScope())));
         List<LlmService.Message> messages = new ArrayList<>();
-        messages.add(LlmService.Message.user(userPrompt(request, chunks)));
+        messages.add(LlmService.Message.user(userPrompt(request, retrieved)));
         Set<String> callIds = new HashSet<>();
         List<LlmService.ToolSpec> availableTools = request.action() == AgentAction.GENERATE_COMMIT_MESSAGE
                 ? List.of() : toolRegistry.specs();
@@ -150,26 +157,39 @@ public final class AgentLoop implements AgentService {
         }
     }
 
-    private List<KnowledgeChunk> retrieve(AgentRequest request, StreamListener listener) {
+    private Retrieved retrieve(AgentRequest request, StreamListener listener) {
         if (request.action() == AgentAction.GENERATE_COMMIT_MESSAGE) {
-            return List.of();
+            return NO_RETRIEVAL;
         }
         try {
             checkInterrupted(listener);
-            List<KnowledgeChunk> chunks = knowledgeBase.retrieve(retrievalQuery(request), TOP_K).stream()
+            String query = retrievalQuery(request);
+            List<KnowledgeChunk> chunks = knowledgeBase.retrieve(query, TOP_K).stream()
                     .limit(TOP_K).toList();
             checkInterrupted(listener);
-            if (chunks.stream().anyMatch(c -> c == null || blank(c.text())
-                    || blank(c.document()) || blank(c.pageOrScope()))) {
-                throw new LlmException("agent.retrievalFailed");
+            if (!chunks.isEmpty()) {
+                return new Retrieved(validated(chunks), List.of());
             }
-            return chunks;
+            // The gate rejected the question. Its judgement is precision-first, so the best-ranked chunk can
+            // still be the page that answers it; offer that one as unverified context instead of nothing.
+            List<KnowledgeChunk> context = knowledgeBase.lowConfidenceContext(query, LOW_CONFIDENCE_TOP_K).stream()
+                    .limit(LOW_CONFIDENCE_TOP_K).toList();
+            checkInterrupted(listener);
+            return new Retrieved(List.of(), validated(context));
         } catch (CancellationException e) {
             throw e;
         } catch (RuntimeException e) {
             checkInterrupted(listener);
             throw new LlmException("agent.retrievalFailed");
         }
+    }
+
+    private List<KnowledgeChunk> validated(List<KnowledgeChunk> chunks) {
+        if (chunks.stream().anyMatch(c -> c == null || blank(c.text())
+                || blank(c.document()) || blank(c.pageOrScope()))) {
+            throw new LlmException("agent.retrievalFailed");
+        }
+        return chunks;
     }
 
     /**
@@ -200,16 +220,12 @@ public final class AgentLoop implements AgentService {
                 prompt, messages, tools), listener);
     }
 
-    private String userPrompt(AgentRequest request, List<KnowledgeChunk> chunks) {
+    private String userPrompt(AgentRequest request, Retrieved retrieved) {
         StringBuilder prompt = new StringBuilder();
-        if (!chunks.isEmpty()) {
-            prompt.append("Retrieved course material:\n");
-            for (KnowledgeChunk chunk : chunks) {
-                prompt.append("- [source: %s, page/scope: %s]\n%s\n"
-                        .formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
-            }
-            prompt.append('\n');
-        }
+        appendChunks(prompt, "Retrieved course material:\n", retrieved.citable());
+        // Marked loudly: the model may use these, but rule 5 of the citation rules forbids citing them.
+        appendChunks(prompt, "Course material that did not pass the relevance gate, unverified and possibly "
+                + "unrelated; use it only as a hint and do not cite it:\n", retrieved.context());
         if (request.action() != AgentAction.GENERATE_COMMIT_MESSAGE && request.editorContext() != null) {
             if (request.editorContext().filePath() != null) {
                 prompt.append("File path: %s\n".formatted(request.editorContext().filePath()));
@@ -228,6 +244,18 @@ public final class AgentLoop implements AgentService {
             prompt.append("User input:\n%s".formatted(request.userInput()));
         }
         return prompt.toString();
+    }
+
+    private void appendChunks(StringBuilder prompt, String heading, List<KnowledgeChunk> chunks) {
+        if (chunks.isEmpty()) {
+            return;
+        }
+        prompt.append(heading);
+        for (KnowledgeChunk chunk : chunks) {
+            prompt.append("- [source: %s, page/scope: %s]\n%s\n"
+                    .formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
+        }
+        prompt.append('\n');
     }
 
     private void checkContextSize(List<LlmService.Message> messages) {
@@ -249,6 +277,15 @@ public final class AgentLoop implements AgentService {
 
     private boolean blank(String value) {
         return value == null || value.isBlank();
+    }
+
+    /**
+     * What retrieval produced for this question.
+     *
+     * @param citable chunks that passed the relevance gate; each one becomes a citation
+     * @param context chunks that did not, offered to the model as unverified material and never cited
+     */
+    private record Retrieved(List<KnowledgeChunk> citable, List<KnowledgeChunk> context) {
     }
 
     private void checkInterrupted(StreamListener listener) {

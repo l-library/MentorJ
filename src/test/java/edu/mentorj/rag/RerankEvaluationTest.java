@@ -21,7 +21,7 @@ import static org.junit.Assume.assumeTrue;
  * question and of the negatives it must still reject lie too close together to separate.
  *
  * <p>So the reranker is evaluated as a **gate replacement**, not as a reorderer: candidates come from
- * {@link RagKnowledgeBase#candidates}, which skips the gate, and the run reports whether one rerank-score
+ * {@link RagKnowledgeBase#lowConfidenceContext}, which skips the gate, and the run reports whether one rerank-score
  * threshold could hold every negative while keeping every positive. A reranker sitting behind the existing gate
  * could only reorder what the gate already let through, so it could not recover the miss at all.
  *
@@ -77,7 +77,7 @@ public class RerankEvaluationTest {
 
         for (GoldenSet.Question question : questions) {
             List<KnowledgeChunk> baseline = knowledgeBase.retrieve(question.text(), TOP_K);
-            List<KnowledgeChunk> pool = knowledgeBase.candidates(question.text(), POOL);
+            List<KnowledgeChunk> pool = knowledgeBase.lowConfidenceContext(question.text(), POOL);
             long startedAt = System.nanoTime();
             double[] scores = reranker.scores(question.text(), pool.stream().map(KnowledgeChunk::text).toList());
             slowestCallMs = Math.max(slowestCallMs, (System.nanoTime() - startedAt) / 1_000_000);

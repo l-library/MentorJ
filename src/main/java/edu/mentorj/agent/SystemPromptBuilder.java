@@ -46,6 +46,9 @@ public final class SystemPromptBuilder {
                    more (only when that tool is available), using specific course keywords; do not
                    repeat the same query. Distinguish material conclusions, general knowledge, and
                    speculation.
+                5. Material marked as not passing the relevance gate is unverified: it may inform the
+                   answer, but never cite it or name its page, and still state the general knowledge
+                   notice from rule 2.
 
                 """.formatted(GENERAL_KNOWLEDGE_NOTICE);
     }
