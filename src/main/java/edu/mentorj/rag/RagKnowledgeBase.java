@@ -133,6 +133,40 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
+     * Pre-gate candidate pool: both paths fused, without the relevance gate and without the per-path score
+     * filters.
+     *
+     * <p>Exists for the offline rerank evaluation, which has to ask whether a cross-encoder score could replace
+     * the cosine gate. It cannot be answered through {@link #retrieve}, because the gate has already emptied the
+     * result for exactly the questions under study. Not part of {@link KnowledgeBase}: no production caller and
+     * {@link #retrieve} never calls it.
+     *
+     * @return up to {@code depth} chunks in fused order; empty when the query matched nothing at all
+     */
+    List<KnowledgeChunk> candidates(String query, int depth) {
+        if (query == null || query.isBlank() || depth <= 0) {
+            return List.of();
+        }
+        ensureLoaded();
+        List<KnowledgeChunk> current = chunks;
+        if (current.isEmpty()) {
+            return List.of();
+        }
+        float[] queryVector = queryVector(query);
+        boolean semanticReady = queryVector != null && vectors.size() == current.size();
+        List<Integer> lexical = bm25.search(query, depth).stream().map(Bm25Index.Hit::chunk).toList();
+        List<Integer> semantic = semanticReady ? semanticRanking(similarities(queryVector)) : List.of();
+        List<List<Integer>> rankings = new ArrayList<>();
+        if (!lexical.isEmpty()) {
+            rankings.add(lexical);
+        }
+        if (!semantic.isEmpty()) {
+            rankings.add(semantic);
+        }
+        return rankings.isEmpty() ? List.of() : fuse(rankings, depth, current);
+    }
+
+    /**
      * @return the query vector; {@code null} when no provider is configured, this session already degraded, or
      *         the call failed
      */
