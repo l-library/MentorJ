@@ -133,6 +133,40 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
+     * Pre-gate candidate pool: both paths fused, without the relevance gate and without the per-path score
+     * filters.
+     *
+     * <p>The gate rejects on evidence that is deliberately precision-first, so the ranking can already hold the
+     * page that answers the question while retrieval returns nothing. These chunks are unverified by definition,
+     * which is why they are a separate list from {@link #retrieve} and never carry citations.
+     *
+     * @return up to {@code depth} chunks in fused order; empty when the query matched nothing at all
+     */
+    @Override
+    public List<KnowledgeChunk> lowConfidenceContext(String query, int depth) {
+        if (query == null || query.isBlank() || depth <= 0) {
+            return List.of();
+        }
+        ensureLoaded();
+        List<KnowledgeChunk> current = chunks;
+        if (current.isEmpty()) {
+            return List.of();
+        }
+        float[] queryVector = queryVector(query);
+        boolean semanticReady = queryVector != null && vectors.size() == current.size();
+        List<Integer> lexical = bm25.search(query, depth).stream().map(Bm25Index.Hit::chunk).toList();
+        List<Integer> semantic = semanticReady ? semanticRanking(similarities(queryVector)) : List.of();
+        List<List<Integer>> rankings = new ArrayList<>();
+        if (!lexical.isEmpty()) {
+            rankings.add(lexical);
+        }
+        if (!semantic.isEmpty()) {
+            rankings.add(semantic);
+        }
+        return rankings.isEmpty() ? List.of() : fuse(rankings, depth, current);
+    }
+
+    /**
      * @return the query vector; {@code null} when no provider is configured, this session already degraded, or
      *         the call failed
      */

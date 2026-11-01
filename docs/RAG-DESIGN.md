@@ -106,7 +106,11 @@ Without a gate, a single matching term returns results, so content the slides ne
 | single chunk cosine | trims off-topic chunks ranked below the top one out of the citations | ≥ 0.45 |
 | query term coverage (fallback with no vectors) | lexical backstop | ≥ 0.50 |
 
-The two query-level signals combine with **OR**: either one holding means the corpus covers the question; when neither holds the result is empty and the agent sets `generalKnowledgeOnly=true`.
+The two query-level signals combine with **OR**: either one holding means the corpus covers the question; when neither holds, `retrieve` returns nothing, the agent sets `generalKnowledgeOnly=true`, and the answer carries no citations.
+
+**What a rejection still offers.** A gate that returns nothing also throws away the ranking, and the ranking can already hold the page that answers the question: `How do I write a lambda expression for a comparator?` sits at `max` 0.576 and gap 0.245, just under both thresholds, while the fused ranking puts Lec-3.3 p.2 — exactly the "Lambda Expressions" page — **first** (§5.3). So a rejection does not end retrieval: `KnowledgeBase.lowConfidenceContext` returns the best chunk, and the agent passes **one** of them to the model as unverified context that the prompt forbids citing. The citation rules and `generalKnowledgeOnly` are unchanged, so a question the gate rejects can now be answered from the material without gaining a citation it does not deserve.
+
+The price is measured too: on the four golden-set negatives that same one chunk is an unrelated page (`How do I deploy a Spring Boot app to Kubernetes?` gets Lec-0-Introduction p.3), so the prompt has to say plainly that unverified material must not be cited or named. One chunk keeps that price bounded — five would spend more context on material the gate already judged off-topic.
 
 Measured distribution: true positives have a `max − median` floor of **0.319** and negatives peak at **0.280**, with no overlap; for `max`, true positives bottom out at 0.589 and negatives peak at 0.545.
 
@@ -125,7 +129,7 @@ Why the raw BM25 score is not used as the score: it has no upper bound (it may b
 | Item | Measured |
 | --- | --- |
 | Base URL | `https://agi.tongji.edu.cn/v1` (OpenAI-compatible) |
-| Model | `Qwen3-Embedding` (the platform also offers `Qwen3-Reranker`; not used this cycle) |
+| Model | `Qwen3-Embedding` (the platform also offers `Qwen3-Reranker`; measured and rejected, see §5.3) |
 | Dimensions | 2560 by default; passing `dimensions` lowers it to 512 |
 | Normalization | Returned vectors are already L2-normalized (magnitude measured at 1.0), so cosine similarity equals the dot product |
 | Concurrency limit | The plan allows 2 concurrent requests; beyond that returns HTTP 429, with the platform's own message meaning "concurrent request limit reached" |
@@ -156,7 +160,7 @@ An early measurement at 2560 dimensions gave "5-7 seconds for 8 inputs", very di
 
 The only miss is a **false rejection**: `How do I write a lambda expression for a comparator?` returns an empty result, while Lec-3.3 p.2 is exactly "Lambda Expressions". Its `max` is 0.576 and its `max−median` is 0.245, both just short; but recovering it would also admit `How do I read a file line by line?` (0.550 / 0.277) and `Angular vs React` (0.511 / 0.198), which are numerically indistinguishable from it. **The choice here is precision over recall**: better to answer "general knowledge only" for this one than to cite the wrong page.
 
-To get both, the right move is adding a reranker layer (the platform already offers `Qwen3-Reranker`): take the top-10 candidates first, then score them with a cross-encoder. Not done this cycle; recorded as an improvement direction.
+To get both, the right move would be a reranker layer (the platform offers `Qwen3-Reranker`): take the top-10 candidates first, then score them with a cross-encoder. **Measured on 2026-11-05 and rejected, see §5.3.**
 
 ### 5.2 Smoke results and BM25 / hybrid comparison (2026-10-30, 218 chunks)
 
@@ -177,6 +181,22 @@ Two conclusions to remember:
 2. **The negatives were not held.** `how do I read a file line by line` does not exist anywhere in the decks (grep confirms no `BufferedReader`/`readAllLines`/`FileReader`), yet both paths returned three irrelevant pages, with pure BM25 ranking "Live Demo with TRAE" first. That means **there was no relevance gate at that point**: a single matching term returns results, the agent cites irrelevant pages, and the assignment's "state general knowledge only when retrieval finds nothing" requirement was effectively broken.
 
 That second point was the first thing to fix on Day 5 (the golden set): add a threshold to retrieval (term coverage and/or a normalized score floor) so that "not in the material" really returns an empty result.
+
+### 5.3 Reranker evaluation (2026-11-05, 218 chunks)
+
+The §5.1 miss is a false rejection, and a cross-encoder layer was the recorded way to recover it. `RerankEvaluationTest` measures exactly that, offline: it takes the pre-gate candidate pool (`RagKnowledgeBase.candidates`, top 10 from both paths, gate bypassed) and reranks it with the platform's `Qwen3-Reranker` over `POST /v1/rerank`. The gate has to be bypassed for the question to be answerable at all — a reranker sitting behind it could only reorder what the gate already let through, so it could never recover the miss.
+
+| Configuration | Page-level top-5 | MRR | Threshold gate |
+| --- | --- | --- | --- |
+| Baseline (shipped gate) | 0.93 (14/15) | 0.81 | negatives: 0 leaked |
+| Reranked, gate bypassed | **0.33 (5/15)** | 0.19 | **impossible**: lowest covered top score 0.415, highest uncovered top score 0.769 |
+
+Two findings:
+
+1. **The platform's `/v1/rerank` does not return a relevance score.** The evaluation opens with a sanity check that has no ambiguity in it: given a query, its own text, and two unrelated sentences, the exact match must rank first. It ranked **3 of 3**, below "Bananas are yellow and rich in potassium." The score is dominated by the document alone — across three different queries the same four candidates came out `[1, 2, 3, 0]`, `[1, 2, 3, 0]`, `[2, 1, 3, 0]`, with the document that answers the query last every time — and it falls as a document grows: the query's own text scored 0.687 alone, 0.566 with a line of junk appended, while pure junk scored 0.581. Reranking through it makes retrieval worse, not better (0.93 → 0.33), and no threshold can separate covered from uncovered questions because the scores are inverted. **Do not wire it in**; re-check only if the platform replaces the endpoint, and the sanity check in `RerankEvaluationTest` is what will say so.
+2. **The one miss does not need a reranker.** For `How do I write a lambda expression for a comparator?` the expected page (Lec-3.3 p.2) sits at **rank 1 of the pre-gate fused pool** — the gate alone discards it. So the remaining lever is the gate's precision/recall trade-off, not the ranking order: the fused ranking already had the answer first, and only the cosine threshold threw it away. **Acted on:** a rejection now hands that first chunk to the model as unverified context without a citation (§4.1), which needs no new dependency and no extra round trip.
+
+The test is skipped without the decks and the API key, like `GoldenSetTest`. It prints the measurement instead of asserting a hit-rate floor, because a floor would only encode today's corpus; what it does assert is the measurement's own validity condition — the candidate pool must contain the expected page for every covered question (it does, 15/15), otherwise the reranked hit rate would be describing a pool that never had the answer in it. One call per question at the top-10 depth measured 90-500 ms, which the report prints as its `slowest rerank call` line.
 
 ## 6. Wiring and threads
 
@@ -231,6 +251,8 @@ Verification results:
 - A Chinese question against English decks retrieves noticeably less: there is no translation or rewriting (the imported material's language is unknown, so hardcoding Chinese-to-English would be a wrong premise), and in that case the answer honestly degrades to "general knowledge only".
 - The index does not ship with the repo, so a reviewer who clones still has to import the decks once.
 - There is no incremental indexing: adding one file means a full rebuild (measured at 2.3 seconds, no longer a burden).
-- **The gate falsely rejects**: a query around a 0.55 cosine with a 0.25 gap is judged as "the corpus does not cover this", as with the lambda/comparator query. What moves up and down is the precision/recall trade-off, not a bug.
+- **The gate falsely rejects**: a query around a 0.55 cosine with a 0.25 gap is judged as "the corpus does not cover this", as with the lambda/comparator query. What moves up and down is the precision/recall trade-off, not a bug. Such a question now still gets its best chunk as unverified context, but it gains **no citation**, so the answer says "general knowledge only" while it was in fact shaped by a course page (§4.1).
+- **Unverified context can mislead**: on a question the decks truly do not cover, that same one chunk is an unrelated page. The prompt forbids citing or naming it and the answer still reports general knowledge only, but the model can still be nudged by it.
+- **No reranker**: the platform's `/v1/rerank` was measured on 2026-11-05 and its scores are not relevance-correlated, so the layer is deliberately absent (§5.3).
 - **Without an API key the negatives are not held**: with the coverage gate alone, `how do I read a file line by line` reaches coverage 1.0 because read/file/line all appear, and still returns irrelevant pages.
 - The relevance thresholds are corpus-dependent empirical values; changing the corpus or the embedding model requires measuring them again (see §4.1). The thresholds also **depend on corpus size**: the no-key coverage gate was tuned against the real decks of over two hundred chunks, and on the 2-page test fixture it judges a query that hits only 1/3 of its terms as "not covered".

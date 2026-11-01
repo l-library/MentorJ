@@ -5,6 +5,7 @@ import edu.mentorj.api.AgentRequest;
 import edu.mentorj.api.AgentResponse;
 import edu.mentorj.api.Citation;
 import edu.mentorj.api.EditorContext;
+import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
 import edu.mentorj.api.StreamListener;
@@ -82,6 +83,40 @@ public class AgentLoopTest {
         assertTrue(sent.get().systemPrompt().contains("practice exercises"));
         assertEquals(List.of(new Citation("Week5.pdf", "12-14")), response.citations());
         assertFalse(response.generalKnowledgeOnly());
+    }
+
+    @Test
+    public void offersUnverifiedContextToTheModelWithoutCitingIt() {
+        AtomicReference<LlmService.Request> sent = new AtomicReference<>();
+        AtomicInteger requested = new AtomicInteger();
+        // The relevance gate rejected the question, yet the ranking still held the page that answers it.
+        KnowledgeBase rejected = new KnowledgeBase() {
+            @Override
+            public List<KnowledgeChunk> retrieve(String query, int topK) {
+                return List.of();
+            }
+
+            @Override
+            public List<KnowledgeChunk> lowConfidenceContext(String query, int topK) {
+                requested.set(topK);
+                return List.of(new KnowledgeChunk("Lambda expressions", "Lec-3.3.pdf", "2", 0.9));
+            }
+        };
+        AgentLoop agent = new AgentLoop(rejected, request -> {
+            sent.set(request);
+            return new LlmService.Result("Use a lambda expression", List.of());
+        }, new SystemPromptBuilder(), new ToolRegistry());
+
+        AgentResponse response = agent.respond(question());
+
+        String prompt = sent.get().messages().get(0).content();
+        assertTrue(prompt.contains("Lambda expressions"));
+        assertTrue("the model must be told the material is unverified",
+                prompt.contains("did not pass the relevance gate"));
+        assertEquals("unverified context is one chunk, not a second retrieval", 1, requested.get());
+        assertTrue("unverified material must never become a citation", response.citations().isEmpty());
+        assertTrue(response.generalKnowledgeOnly());
+        assertTrue(sent.get().systemPrompt().contains("never cite it"));
     }
 
     @Test

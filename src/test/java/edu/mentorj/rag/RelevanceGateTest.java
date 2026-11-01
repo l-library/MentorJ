@@ -89,6 +89,27 @@ public class RelevanceGateTest {
     }
 
     @Test
+    public void aRejectedQuestionStillOffersItsBestChunkAsUnverifiedContext() {
+        // The borderline band, where the gate decides the corpus does not cover the question. The ranking still
+        // has an order, so the agent gets the best chunk as unverified context instead of nothing.
+        RagKnowledgeBase knowledgeBase = withSimilarities(0.52, 0.55, 0.50);
+
+        assertEquals(List.of(), knowledgeBase.retrieve("q", 3));
+        List<KnowledgeChunk> context = knowledgeBase.lowConfidenceContext("q", 1);
+        assertEquals(1, context.size());
+        assertEquals("p.2", context.get(0).pageOrScope());
+    }
+
+    @Test
+    public void unverifiedContextIsEmptyWhenTheCorpusHasNothingToOffer() {
+        // Only the gate's answer changes on rejection; a query that matches nothing still returns nothing.
+        RagKnowledgeBase empty = new RagKnowledgeBase();
+
+        assertEquals(List.of(), empty.lowConfidenceContext("q", 1));
+        assertEquals(List.of(), empty.lowConfidenceContext(" ", 1));
+    }
+
+    @Test
     public void aHighTopScoreDoesNotNeedAGap() {
         // When the whole corpus is relevant the gap stays small, and the top cosine settles it.
         assertTrue(RagKnowledgeBase.coversQuestion(new double[]{0.62, 0.60, 0.61}));

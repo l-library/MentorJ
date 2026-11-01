@@ -1,6 +1,7 @@
 package edu.mentorj.rag;
 
 import edu.mentorj.api.Citation;
+import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.Tool;
 import org.junit.Test;
@@ -39,6 +40,25 @@ public class KnowledgeSearchToolTest {
             assertTrue(output.text().startsWith("tool_error:"));
             assertTrue(output.citations().isEmpty());
         }
+    }
+
+    @Test
+    public void offersRejectedChunkAsUnverifiedContextWithoutSources() {
+        KnowledgeSearchTool tool = new KnowledgeSearchTool(new KnowledgeBase() {
+            @Override
+            public List<KnowledgeChunk> retrieve(String query, int topK) {
+                return List.of();
+            }
+
+            @Override
+            public List<KnowledgeChunk> lowConfidenceContext(String query, int topK) {
+                return List.of(new KnowledgeChunk("Lambda expressions", "Lec-3.3.pdf", "2", 0.9));
+            }
+        });
+        Tool.ExecutionResult output = tool.executeWithSources("{\"query\":\"lambda comparator\"}");
+        assertTrue(output.text().contains("Lambda expressions"));
+        assertTrue(output.text().contains("must not be cited"));
+        assertTrue(output.citations().isEmpty());
     }
 
     @Test

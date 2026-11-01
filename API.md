@@ -133,6 +133,10 @@ public interface StreamListener {
 // an empty list when nothing matches, never null.
 public interface KnowledgeBase {
     List<KnowledgeChunk> retrieve(String query, int topK);
+
+    // Chunks for a query the relevance gate rejects: unverified, never cited, and default-empty so an existing
+    // implementation keeps compiling and keeps the old "no context" behaviour.
+    default List<KnowledgeChunk> lowConfidenceContext(String query, int topK) { return List.of(); }
 }
 
 // Implemented by the RAG team, called by the UI team: import course material, clear the index, query its state.
@@ -196,6 +200,7 @@ This branch implements the following additions for the agent completion task whi
 - `Request`, `Message`, `Result` and `ExecutionResult` take immutable copies of their lists, and the lists may not be null.
 - `Tool.executeWithSources` returns the body plus structured sources; an old tool that returns only a string keeps working but produces no citations.
   Each tool validates its own parameter fields. Output for a failure or an empty result carries no sources.
+- When `retrieve` returns nothing, the agent core team may fetch one chunk with `KnowledgeBase.lowConfidenceContext` and pass it to the model as **unverified** context: the prompt forbids citing or naming it, it never reaches `citations`, and `generalKnowledgeOnly` stays `true`. The UI team sees no difference, and the retrieval tool marks such a chunk the same way in its text.
 - The final `AgentResponse.citations` merges the sources given to the model from the initial retrieval and from successful tool retrievals, deduplicated in order of appearance.
   Sources are never extracted from text the model generated, and documents or page numbers are never invented. An error answer carries no course citations and no general knowledge notice.
 - When a text answer is truncated by the length limit but a body already exists, `text` keeps the body and prefixes an "Answer incomplete" notice, still with the sources already provided.
@@ -208,7 +213,7 @@ This branch implements the following additions for the agent completion task whi
 ## 3. Key data flows
 
 0. **Importing course material**: the UI team picks files → `DocumentLibrary.importDocuments(paths, progress)` (background thread) → the RAG team parses the PDFs, chunks by page, builds the index, writes `.idea/mentorj-index.json` → returns `ImportResult` → the UI team shows the indexed document count, the chunk count and the failure list.
-1. **Sidebar Q&A**: the UI team collects the question → `AgentService.respond(ASK, listener)` → the agent core team retrieves chunks with `KnowledgeBase.retrieve` → assembles the system prompt (with citation rules) and the context → `LlmService` (running the tool loop when needed) → `AgentResponse` → the UI team shows the body plus citations / disclaimer.
+1. **Sidebar Q&A**: the UI team collects the question → `AgentService.respond(ASK, listener)` → the agent core team retrieves chunks with `KnowledgeBase.retrieve`, falling back to one unverified `lowConfidenceContext` chunk when the relevance gate rejects the question → assembles the system prompt (with citation rules) and the context → `LlmService` (running the tool loop when needed) → `AgentResponse` → the UI team shows the body plus citations / disclaimer.
 2. **Asking about selected code from the context menu**: the UI team collects an `EditorContext` with `EditorContexts` → same as 1 (`ASK`).
 3. **Unit test generation**: the UI team shows a text input to collect the natural-language scenario → `respond(GENERATE_UNIT_TEST)` → the agent core team generates a JUnit test class from the scenario and the context code → the UI team shows it.
 4. **Commit message generation**: the UI team collects the staged diff → `respond(GENERATE_COMMIT_MESSAGE)` → the agent core team analyzes the intent and writes a Conventional Commits message → the UI team shows it.
@@ -218,6 +223,7 @@ Division of labor for the intelligent actions: the **UI team** owns the trigger 
 
 ## 4. Global rules (mandatory when implementing)
 
+- **Unverified material**: a chunk that did not pass the relevance gate may inform an answer but must never become a citation, a named page, or evidence for the disclaimer. Only `retrieve` output is citable.
 - **Citations and disclaimer**: when course material was retrieved, `citations` must give `document` + `pageOrScope`; when nothing was retrieved, `generalKnowledgeOnly` must be `true` and the UI team must state explicitly that the answer is based on general knowledge only, without cited course material (for example, "Response is based on general knowledge; no specific course material is referenced"). The system prompt constrains the LLM's sourcing in the same way.
 - **Threading**: `AgentService.respond` may block for a long time, so the UI team always runs it on a background thread and returns to the EDT only to update the UI; `StreamListener` callbacks arrive on that same background thread, and the UI team merges them and switches back to the EDT itself.
 - **Nulls**: in the contract `null` only means "not applicable / not provided"; a `List` is always returned empty instead of `null`.
