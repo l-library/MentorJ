@@ -29,7 +29,7 @@ MentorJ 是《Java 企业级应用开发》课程的助教插件，运行在 Int
 
 ## LLM 接入（同济 AI 服务平台）
 
-插件通过同济平台的 Chat Completions 接口进行非流式生成，Agent 可在生成过程中调用课程检索工具。
+插件通过同济平台的 Chat Completions 接口进行流式生成，Agent 可在生成过程中调用课程检索工具。
 已根据平台调用示例设置默认地址和模型，运行前只需配置 `MENTORJ_LLM_API_KEY`。
 
 | 变量 | 内容 |
@@ -37,12 +37,16 @@ MentorJ 是《Java 企业级应用开发》课程的助教插件，运行在 Int
 | `MENTORJ_LLM_API_KEY` | 必填，同济平台签发的 API Key |
 | `MENTORJ_LLM_BASE_URL` | 可选，默认 `https://agi.tongji.edu.cn/v1` |
 | `MENTORJ_LLM_MODEL` | 可选，默认 `DeepSeek-V4.1-Flash` |
-| `MENTORJ_LLM_TIMEOUT_SECONDS` | 可选，请求超时秒数，默认 90，范围 1–600 |
+| `MENTORJ_LLM_TIMEOUT_SECONDS` | 可选，请求超时或流式空闲超时秒数，默认 90，范围 1–600 |
 | `MENTORJ_LLM_MAX_TOKENS` | 可选，每次响应输出上限，默认 8192；插件接受 1–32768，实际须符合所选模型限制 |
+| `MENTORJ_LLM_STREAM` | 可选，`true`（默认）流式返回，`false` 回退到一次性返回；网关不兼容流式时使用 |
 
 默认请求地址为 `https://agi.tongji.edu.cn/v1/chat/completions`，通过
 `Authorization: Bearer <API Key>` 认证。请求使用 `max_tokens: 8192`、
-`temperature: 0.7`、`stream: false`。输出额度从平台示例中的 1000 提高到 8192，
+`temperature: 0.7`、`stream: true`，按 SSE 解析 `delta.content` 与分片的流式工具调用；
+服务端忽略 `stream` 返回整段 JSON 时自动回退到一次性解析。
+流式请求不设置整体超时，改用“无新数据即超时”的空闲看门狗，避免长回答被截断。
+输出额度从平台示例中的 1000 提高到 8192，
 为课程解释与代码示例留出空间；这是最大额度，并不要求模型用完。
 如果回答仍被截断，已有正文会保留，并在开头明确标注“回答未完成”；生成的代码可能不完整。
 只有推理内容、没有回答正文时会提示当前额度，且不展示推理内容；被截断的工具调用不会执行。

@@ -6,8 +6,13 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import edu.mentorj.api.LlmService;
+import edu.mentorj.api.StreamListener;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -17,17 +22,37 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.ResourceBundle;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
-/** Non-streaming text and tool calls through a configurable Chat Completions endpoint. */
+/** Text and tool calls through a configurable Chat Completions endpoint, streamed when enabled. */
 public final class ChatCompletionsLlmService implements LlmService {
+
+    private static final long WATCHDOG_INTERVAL_MILLIS = 250;
+    private static final String DATA_PREFIX = "data:";
+    private static final String DONE = "[DONE]";
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
+
+    /** One idle watchdog serves every request; each task only compares timestamps and closes one stream. */
+    private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "MentorJ LLM idle watchdog");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private final Supplier<LlmSettings> settings;
     private final HttpClient http;
@@ -49,7 +74,7 @@ public final class ChatCompletionsLlmService implements LlmService {
                 .header("Authorization", "Bearer " + config.apiKey())
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(payload(request, config), StandardCharsets.UTF_8))
+                .POST(HttpRequest.BodyPublishers.ofString(payload(request, config, false), StandardCharsets.UTF_8))
                 .build();
         try {
             HttpResponse<String> response = http.send(httpRequest,
@@ -66,12 +91,44 @@ public final class ChatCompletionsLlmService implements LlmService {
         }
     }
 
-    private String payload(Request request, LlmSettings config) {
+    @Override
+    public Result complete(Request request, StreamListener listener) {
+        LlmSettings config = settings.get();
+        if (!config.stream()) {
+            // The switch exists for gateways that reject stream=true; keep one callback shape either way.
+            return emitOnce(complete(request), listener);
+        }
+        HttpRequest httpRequest = HttpRequest.newBuilder(config.endpoint())
+                .header("Authorization", "Bearer " + config.apiKey())
+                .header("Content-Type", "application/json")
+                .header("Accept", "text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(payload(request, config, true), StandardCharsets.UTF_8))
+                .build();
+        // A request timeout would cut long answers, so streams rely on the idle watchdog instead.
+        try {
+            HttpResponse<InputStream> response = http.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+            try (InputStream body = response.body()) {
+                checkStatus(response.statusCode());
+                return isEventStream(response)
+                        ? readEvents(body, config, listener)
+                        : parseWholeBody(body, config, listener);
+            }
+        } catch (HttpTimeoutException e) {
+            throw new LlmException("llm.timeout");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new LlmException("llm.interrupted");
+        } catch (IOException e) {
+            throw new LlmException("llm.networkError");
+        }
+    }
+
+    private String payload(Request request, LlmSettings config, boolean stream) {
         JsonObject body = new JsonObject();
         body.addProperty("model", config.model());
         body.addProperty("max_tokens", config.maxTokens());
         body.addProperty("temperature", 0.7);
-        body.addProperty("stream", false);
+        body.addProperty("stream", stream);
         JsonArray messages = new JsonArray();
         if (request.systemPrompt() != null && !request.systemPrompt().isBlank()) {
             messages.add(message("system", request.systemPrompt()));
@@ -253,6 +310,257 @@ public final class ChatCompletionsLlmService implements LlmService {
             calls.add(new ToolCall(id, name, arguments));
         }
         return calls;
+    }
+
+    private boolean isEventStream(HttpResponse<?> response) {
+        return response.headers().firstValue("Content-Type")
+                .map(value -> value.toLowerCase(Locale.ROOT).startsWith("text/event-stream"))
+                .orElse(false);
+    }
+
+    /**
+     * The gateway accepted stream=true but answered with a complete body. Parse it the usual way, except that an
+     * SSE-looking body still goes through the event reader; some gateways stream without declaring the content type.
+     */
+    private Result parseWholeBody(InputStream body, LlmSettings config, StreamListener listener) throws IOException {
+        String text = readBody(body, config.timeout());
+        if (text.stripLeading().startsWith(DATA_PREFIX)) {
+            return readEvents(new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)), config, listener);
+        }
+        return emitOnce(parse(text, config.maxTokens()), listener);
+    }
+
+    /** The fallback body is not covered by HttpRequest.timeout, so keep the same overall deadline here. */
+    private String readBody(InputStream body, Duration timeout) throws IOException {
+        AtomicBoolean expired = new AtomicBoolean();
+        ScheduledFuture<?> watchdog = WATCHDOG.schedule(() -> {
+            expired.set(true);
+            closeQuietly(body);
+        }, timeout.toMillis(), TimeUnit.MILLISECONDS);
+        try {
+            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            if (expired.get()) {
+                throw new LlmException("llm.timeout");
+            }
+            throw e;
+        } finally {
+            watchdog.cancel(false);
+        }
+    }
+
+    /** Only answer text is reported here; the agent loop announces tool rounds through onToolCalls. */
+    private Result emitOnce(Result result, StreamListener listener) {
+        if (listener.isCancelled() || !result.toolCalls().isEmpty() || result.content() == null) {
+            return result;
+        }
+        listener.onText(result.content());
+        return result;
+    }
+
+    private Result readEvents(InputStream body, LlmSettings config, StreamListener listener) {
+        StringBuilder content = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
+        Map<Integer, ToolCallBuilder> calls = new TreeMap<>();
+        AtomicLong lastActivity = new AtomicLong(System.nanoTime());
+        AtomicBoolean idle = new AtomicBoolean();
+        AtomicBoolean cancelled = new AtomicBoolean();
+        Thread reader = Thread.currentThread();
+        long timeoutNanos = config.timeout().toNanos();
+        // The stream has no per-read timeout, so close it from the outside when tokens stop arriving or the user stops.
+        ScheduledFuture<?> watchdog = WATCHDOG.scheduleAtFixedRate(() -> {
+            if (listener.isCancelled() || reader.isInterrupted()) {
+                cancelled.set(true);
+            } else if (System.nanoTime() - lastActivity.get() > timeoutNanos) {
+                idle.set(true);
+            } else {
+                return;
+            }
+            closeQuietly(body);
+        }, WATCHDOG_INTERVAL_MILLIS, WATCHDOG_INTERVAL_MILLIS, TimeUnit.MILLISECONDS);
+        String finishReason = null;
+        boolean done = false;
+        try {
+            BufferedReader lines = new BufferedReader(new InputStreamReader(body, StandardCharsets.UTF_8));
+            while (true) {
+                if (listener.isCancelled() || Thread.currentThread().isInterrupted()) {
+                    throw new LlmException("llm.interrupted");
+                }
+                String line = lines.readLine();
+                if (line == null) {
+                    break;
+                }
+                lastActivity.set(System.nanoTime());
+                if (line.isEmpty() || line.startsWith(":") || !line.startsWith(DATA_PREFIX)) {
+                    continue;
+                }
+                String data = line.substring(DATA_PREFIX.length()).strip();
+                if (data.isEmpty()) {
+                    continue;
+                }
+                if (DONE.equals(data)) {
+                    done = true;
+                    break;
+                }
+                JsonObject event = parseEvent(data);
+                if (event.has("error") && !event.get("error").isJsonNull()) {
+                    throw new LlmException("llm.invalidResponse");
+                }
+                JsonArray choices = event.getAsJsonArray("choices");
+                if (choices == null || choices.isEmpty()) {
+                    continue;    // usage-only chunks carry no delta
+                }
+                JsonObject choice = choices.get(0).getAsJsonObject();
+                String reason = string(choice, "finish_reason");
+                if (reason != null) {
+                    finishReason = reason;
+                }
+                JsonObject delta = choice.getAsJsonObject("delta");
+                if (delta == null) {
+                    continue;
+                }
+                String text = string(delta, "content");
+                if (text != null && !text.isEmpty()) {
+                    content.append(text);
+                    listener.onText(text);
+                }
+                // Reasoning is only replayed to the provider on the next round, never shown as an answer.
+                String thinking = string(delta, "reasoning_content");
+                if (thinking != null) {
+                    reasoning.append(thinking);
+                }
+                mergeToolCalls(delta, calls);
+            }
+        } catch (IOException e) {
+            if (cancelled.get()) {
+                throw new LlmException("llm.interrupted");
+            }
+            if (idle.get()) {
+                throw new LlmException("llm.timeout");
+            }
+            throw new LlmException("llm.networkError");
+        } catch (JsonParseException | IllegalStateException | ClassCastException | UnsupportedOperationException e) {
+            throw new LlmException("llm.invalidResponse");
+        } finally {
+            watchdog.cancel(false);
+        }
+        if (cancelled.get()) {
+            throw new LlmException("llm.interrupted");
+        }
+        if (idle.get()) {
+            throw new LlmException("llm.timeout");
+        }
+        if (!done && finishReason == null) {
+            throw new LlmException("llm.invalidResponse");
+        }
+        if (finishReason == null) {
+            // Tolerate servers that close the stream right after [DONE] without a final finish_reason chunk.
+            finishReason = content.isEmpty() && calls.isEmpty() ? null : "stop";
+        }
+        if ("content_filter".equals(finishReason)) {
+            throw new LlmException("llm.filteredResponse");
+        }
+        if ("length".equals(finishReason)) {
+            if (!calls.isEmpty()) {
+                throw new LlmException("llm.truncatedToolCall");
+            }
+            if (content.isEmpty()) {
+                throw new LlmException("llm.truncatedResponse", Integer.toString(config.maxTokens()));
+            }
+            String notice = ResourceBundle.getBundle("messages.MentorJBundle").getString("llm.partialResponse");
+            return new Result(notice + "\n\n" + content, List.of(),
+                    reasoning.isEmpty() ? null : reasoning.toString());
+        }
+        List<ToolCall> result = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
+        for (ToolCallBuilder call : calls.values()) {
+            if (blank(call.id) || blank(call.name) || !call.argumentsSeen || !ids.add(call.id)) {
+                throw new LlmException("llm.invalidResponse");
+            }
+            result.add(new ToolCall(call.id, call.name, call.arguments.toString()));
+        }
+        if (result.isEmpty() && content.isEmpty()) {
+            throw new LlmException("llm.invalidResponse");
+        }
+        return new Result(content.isEmpty() ? null : content.toString(), result,
+                reasoning.isEmpty() ? null : reasoning.toString());
+    }
+
+    private JsonObject parseEvent(String data) {
+        try {
+            JsonElement element = JsonParser.parseString(data);
+            if (!element.isJsonObject()) {
+                throw new LlmException("llm.invalidResponse");
+            }
+            return element.getAsJsonObject();
+        } catch (JsonParseException e) {
+            throw new LlmException("llm.invalidResponse");
+        }
+    }
+
+    /** Tool call deltas are keyed by index; id, name and argument fragments arrive across several chunks. */
+    private void mergeToolCalls(JsonObject delta, Map<Integer, ToolCallBuilder> calls) {
+        JsonElement value = delta.get("tool_calls");
+        if (value == null || value.isJsonNull()) {
+            return;
+        }
+        if (!value.isJsonArray()) {
+            throw new LlmException("llm.invalidResponse");
+        }
+        for (JsonElement element : value.getAsJsonArray()) {
+            if (!element.isJsonObject()) {
+                throw new LlmException("llm.invalidResponse");
+            }
+            JsonObject call = element.getAsJsonObject();
+            int index = 0;
+            JsonElement indexValue = call.get("index");
+            if (indexValue != null && !indexValue.isJsonNull()) {
+                if (!indexValue.isJsonPrimitive() || !indexValue.getAsJsonPrimitive().isNumber()) {
+                    throw new LlmException("llm.invalidResponse");
+                }
+                index = indexValue.getAsInt();
+                if (index < 0 || index > 63) {
+                    throw new LlmException("llm.invalidResponse");
+                }
+            }
+            String type = string(call, "type");
+            if (type != null && !"function".equals(type)) {
+                throw new LlmException("llm.invalidResponse");
+            }
+            ToolCallBuilder builder = calls.computeIfAbsent(index, key -> new ToolCallBuilder());
+            String id = string(call, "id");
+            if (id != null) {
+                builder.id = id;
+            }
+            JsonObject function = call.getAsJsonObject("function");
+            if (function == null) {
+                continue;
+            }
+            String name = string(function, "name");
+            if (name != null) {
+                builder.name = name;
+            }
+            String arguments = string(function, "arguments");
+            if (arguments != null) {
+                builder.argumentsSeen = true;
+                builder.arguments.append(arguments);
+            }
+        }
+    }
+
+    private void closeQuietly(InputStream body) {
+        try {
+            body.close();
+        } catch (IOException ignored) {
+            // The read loop reports the failure through the usual error mapping.
+        }
+    }
+
+    private static final class ToolCallBuilder {
+        private String id;
+        private String name;
+        private boolean argumentsSeen;
+        private final StringBuilder arguments = new StringBuilder();
     }
 
     private String string(JsonObject object, String key) {

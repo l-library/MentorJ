@@ -40,6 +40,7 @@ src/main/java/edu/mentorj/
 │   ├── LlmService.java         LLM 调用接口（含消息 / 工具调用数据类型）
 │   ├── ProgressListener.java   导入进度回调（纯 Java，不引平台类型）
 │   ├── Statistics.java         索引现状（文档清单、知识块数、索引时间）
+│   ├── StreamListener.java     回答增量回调（纯 Java，不引平台类型）
 │   └── Tool.java               agent 可调用的工具接口
 ├── agent/                      agent 核心组：循环、系统提示词、工具调用、LLM 接入
 │   ├── AgentLoop.java          AgentService 实现：检索 → 提示词 → LLM → 工具循环
@@ -84,6 +85,7 @@ src/main/java/edu/mentorj/
 | `KnowledgeChunk` | `text`、`document`、`pageOrScope`、`score` | 一个知识块及其来源，`score` 越大越相关 |
 | `ProgressListener` | `onProgress(done, total, message)` | 导入进度回调；在导入线程上被调用，界面组自行切回 EDT |
 | `Statistics` | `documents`、`chunks`、`indexedAt` | 索引现状；`indexedAt` 为 `null` 表示尚未导入 |
+| `StreamListener` | `onText(delta)`、`onToolCalls(toolNames)`、`isCancelled()` | 回答增量回调；在调用方后台线程执行，界面组自行切回 EDT |
 
 各操作对 `AgentRequest` 字段的要求：
 
@@ -100,6 +102,21 @@ src/main/java/edu/mentorj/
 // agent 核心组实现，界面组调用。同步阻塞，界面组必须在后台线程调用，禁止在 EDT 调用。
 public interface AgentService {
     AgentResponse respond(AgentRequest request);
+    // 带增量回调的版本；默认实现退化为完成后回调一次正文，旧实现无需修改。
+    default AgentResponse respond(AgentRequest request, StreamListener listener) {
+        AgentResponse response = respond(request);
+        if (!listener.isCancelled() && response.text() != null) {
+            listener.onText(response.text());
+        }
+        return response;
+    }
+}
+
+// 回答增量回调。纯 JDK 类型；页面更新由界面组自行切回 EDT。
+public interface StreamListener {
+    void onText(String delta);
+    default void onToolCalls(List<String> toolNames) {}  // 本轮以工具调用结束，此前增量不属于最终回答
+    default boolean isCancelled() { return false; }      // 每个增量、每次工具执行前轮询
 }
 
 // RAG 组实现，agent 核心组调用。按 score 降序返回，无结果返回空表，不返回 null。
@@ -118,6 +135,14 @@ public interface DocumentLibrary {
 // agent 核心组实现真实版本（LLM 接入）；Request 携带系统提示词、消息与可用工具。
 public interface LlmService {
     Result complete(Request request);
+    // 带监听器时按服务端支持流式返回；默认实现退化为完成后回调一次正文。
+    default Result complete(Request request, StreamListener listener) {
+        Result result = complete(request);
+        if (!listener.isCancelled() && result.toolCalls().isEmpty() && result.content() != null) {
+            listener.onText(result.content());
+        }
+        return result;
+    }
     // 嵌套数据类型：Message（role: system/user/assistant/tool）、ToolSpec、ToolCall、Request、Result
 }
 
@@ -134,6 +159,16 @@ public interface Tool {
 `importDocuments` 的语义是**全量重建**：清空现有索引 → 逐个解析传入的文档 → 切块 → 建索引 → 落盘。只支持 PDF；不支持的格式与解析失败都进 `failures`，不抛异常、不影响其余文档。`progress` 可为 `null`。索引持久化在项目的 `.idea/mentorj-index.json`，重启 IDE 后自动加载，不要求原文档仍然存在。
 
 `DocumentLibrary` 由 RAG 组新增，经三方确认后界面组方可依赖。
+
+流式回调的语义：
+
+- `onText` 的增量按顺序拼接等于最终 `AgentResponse.text()` / `Result.content()`；实现可以一次性回调全文。
+- `onToolCalls` 表示本轮以工具调用结束：此前收到的正文增量不是最终回答，界面应清空并显示工具状态。
+  工具名按调用顺序给出，仅用于展示，不参与协议。
+- `isCancelled()` 至少每个增量、每次工具执行前轮询一次；返回 `true` 后实现尽快关闭连接，
+  本次请求以可展示的“已取消”错误收尾，不返回半成品回答。
+- 回调发生在调用方的后台线程上；禁止在回调里操作 Swing。
+- 流式失败（网络中断、空闲超时、格式错误、被过滤）与一次性请求返回同样的可展示错误，不泄露响应正文或密钥。
 
 ### 2.3 本地 Agent 分支的兼容扩展（供三方联调评审）
 
@@ -160,7 +195,7 @@ public interface Tool {
 ## 3. 关键数据流
 
 0. **导入课程材料**：界面组选文件 → `DocumentLibrary.importDocuments(paths, progress)`（后台线程）→ RAG 组解析 PDF、按页切块、建索引、写 `.idea/mentorj-index.json` → 返回 `ImportResult` → 界面组展示已索引文档数 / 知识块数与失败清单。
-1. **侧边栏问答**：界面组收问题 → `AgentService.respond(ASK)` → agent 核心组：`KnowledgeBase.retrieve` 检索知识块 → 组装系统提示词（含引用规则）与上下文 → `LlmService`（必要时走工具循环）→ `AgentResponse` → 界面组展示正文 + 引用 / 免责声明。
+1. **侧边栏问答**：界面组收问题 → `AgentService.respond(ASK, listener)` → agent 核心组：`KnowledgeBase.retrieve` 检索知识块 → 组装系统提示词（含引用规则）与上下文 → `LlmService`（必要时走工具循环）→ `AgentResponse` → 界面组展示正文 + 引用 / 免责声明。
 2. **右键就选中代码提问**：界面组用 `EditorContexts` 采集 `EditorContext` → 同 1（`ASK`）。
 3. **单测生成**：界面组弹文本输入框收集自然语言场景 → `respond(GENERATE_UNIT_TEST)` → agent 核心组按场景 + 上下文代码生成 JUnit 测试类 → 界面组展示。
 4. **commit message 生成**：界面组采集 staged diff → `respond(GENERATE_COMMIT_MESSAGE)` → agent 核心组分析语义意图并按 Conventional Commits 生成消息 → 界面组展示。
@@ -171,7 +206,7 @@ public interface Tool {
 ## 4. 全局规则（实现时必须遵守）
 
 - **引用与免责声明**：检索到课程材料时 `citations` 必须给出 `document` + `pageOrScope`；检索不到时 `generalKnowledgeOnly` 必须为 `true`，界面组必须显式声明“回答仅基于通用知识，未引用课程材料”（如 “Response is based on general knowledge; no specific course material is referenced”）。系统提示词里同步约束 LLM 行文引用来源。
-- **线程**：`AgentService.respond` 可能长时间阻塞，界面组一律放后台线程执行，只在更新 UI 时回到 EDT。
+- **线程**：`AgentService.respond` 可能长时间阻塞，界面组一律放后台线程执行，只在更新 UI 时回到 EDT；`StreamListener` 的回调也在同一后台线程，界面组自行合并后切回 EDT。
 - **空值**：契约里的 `null` 只表示“不适用 / 未提供”；`List` 一律返回空表而不是 `null`。
 - **无索引**：没导入课程材料时 `retrieve` 返回空表，`AgentResponse.generalKnowledgeOnly` 为 `true`，界面组展示通用知识声明。
 - **文案**：所有 UI 文案进 `src/main/resources/messages/MentorJBundle.properties`，用 `MentorJBundle.message(key, ...)` 取，不硬编码。
@@ -195,5 +230,6 @@ public interface Tool {
   模型为 `DeepSeek-V4.1-Flash`。API Key 通过本地环境变量配置，地址和模型可覆盖，见 README。
 - 原生工具调用：本地适配器与循环已实现兼容协议，使用模拟 HTTP 服务验证；
   同济网关对所选模型的工具支持仍需带真实 Key 联调，不能由文本调用示例推定。
+- 流式输出：已通过 `StreamListener` 接入，文本增量与流式工具调用均在本地模拟服务验证；
+  同济网关的 `stream: true` 兼容性仍需带真实 Key 联调，失败时可用 `MENTORJ_LLM_STREAM=false` 回退。
 - 检索方案（已定）：BM25 词法检索 + embedding 语义检索，两路排名用 RRF 融合，并有相关性闸门在语料未覆盖时返回空表；embedding 走同济 AGI 的 `Qwen3-Embedding`（OpenAI 兼容 `/v1/embeddings`，512 维），key 从环境变量 `MENTORJ_LLM_API_KEY` 读取。embedding 不可用时自动降级为纯 BM25，引用仍然有效。
-- 回答的流式输出：本期不做，`AgentService` 为一次性返回。

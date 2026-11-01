@@ -8,6 +8,7 @@ import edu.mentorj.api.Citation;
 import edu.mentorj.api.KnowledgeBase;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
+import edu.mentorj.api.StreamListener;
 import edu.mentorj.api.Tool;
 
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ public final class AgentLoop implements AgentService {
     private static final int MAX_CALLS_PER_ROUND = 8;
     private static final int MAX_INPUT_CHARS = 60_000;
     private static final int MAX_CONTEXT_CHARS = 120_000;
+    private static final StreamListener NO_STREAM = delta -> { };
 
     private final KnowledgeBase knowledgeBase;
     private final LlmService llmService;
@@ -46,8 +48,13 @@ public final class AgentLoop implements AgentService {
 
     @Override
     public AgentResponse respond(AgentRequest request) {
+        return respond(request, NO_STREAM);
+    }
+
+    @Override
+    public AgentResponse respond(AgentRequest request, StreamListener listener) {
         try {
-            return generateResponse(request);
+            return generateResponse(request, listener);
         } catch (LlmException e) {
             // A failure is not a generated answer, so do not attach citations or a knowledge disclaimer.
             return new AgentResponse(e.getMessage(), List.of(), false);
@@ -56,13 +63,13 @@ public final class AgentLoop implements AgentService {
         }
     }
 
-    private AgentResponse generateResponse(AgentRequest request) {
-        checkInterrupted();
+    private AgentResponse generateResponse(AgentRequest request, StreamListener listener) {
+        checkInterrupted(listener);
         validate(request);
         if (userPrompt(request, List.of()).length() > MAX_INPUT_CHARS) {
             throw new LlmException("agent.inputTooLarge");
         }
-        List<KnowledgeChunk> chunks = retrieve(request);
+        List<KnowledgeChunk> chunks = retrieve(request, listener);
         Set<Citation> citations = new LinkedHashSet<>();
         chunks.forEach(chunk -> citations.add(new Citation(chunk.document(), chunk.pageOrScope())));
         List<LlmService.Message> messages = new ArrayList<>();
@@ -72,8 +79,8 @@ public final class AgentLoop implements AgentService {
                 ? List.of() : toolRegistry.specs();
         for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
             List<LlmService.ToolSpec> tools = round < MAX_TOOL_ROUNDS ? availableTools : List.of();
-            LlmService.Result result = complete(request, messages, tools, round == MAX_TOOL_ROUNDS);
-            checkInterrupted();
+            LlmService.Result result = complete(request, messages, tools, round == MAX_TOOL_ROUNDS, listener);
+            checkInterrupted(listener);
             if (result == null) {
                 throw new LlmException("llm.invalidResponse");
             }
@@ -94,8 +101,10 @@ public final class AgentLoop implements AgentService {
             }
             messages.add(LlmService.Message.assistant(result));
             checkContextSize(messages);
+            // Text streamed before the model decided to call tools is not the final answer; tell the UI to reset.
+            listener.onToolCalls(result.toolCalls().stream().map(LlmService.ToolCall::name).toList());
             for (LlmService.ToolCall call : result.toolCalls()) {
-                checkInterrupted();
+                checkInterrupted(listener);
                 Tool.ExecutionResult output = toolRegistry.executeWithSources(call);
                 messages.add(LlmService.Message.tool(call.id(), output.text()));
                 citations.addAll(output.citations());
@@ -141,15 +150,15 @@ public final class AgentLoop implements AgentService {
         }
     }
 
-    private List<KnowledgeChunk> retrieve(AgentRequest request) {
+    private List<KnowledgeChunk> retrieve(AgentRequest request, StreamListener listener) {
         if (request.action() == AgentAction.GENERATE_COMMIT_MESSAGE) {
             return List.of();
         }
         try {
-            checkInterrupted();
+            checkInterrupted(listener);
             List<KnowledgeChunk> chunks = knowledgeBase.retrieve(retrievalQuery(request), TOP_K).stream()
                     .limit(TOP_K).toList();
-            checkInterrupted();
+            checkInterrupted(listener);
             if (chunks.stream().anyMatch(c -> c == null || blank(c.text())
                     || blank(c.document()) || blank(c.pageOrScope()))) {
                 throw new LlmException("agent.retrievalFailed");
@@ -158,7 +167,7 @@ public final class AgentLoop implements AgentService {
         } catch (CancellationException e) {
             throw e;
         } catch (RuntimeException e) {
-            checkInterrupted();
+            checkInterrupted(listener);
             throw new LlmException("agent.retrievalFailed");
         }
     }
@@ -176,15 +185,16 @@ public final class AgentLoop implements AgentService {
     }
 
     private LlmService.Result complete(AgentRequest request, List<LlmService.Message> messages,
-                                       List<LlmService.ToolSpec> tools, boolean finalRound) {
-        checkInterrupted();
+                                       List<LlmService.ToolSpec> tools, boolean finalRound,
+                                       StreamListener listener) {
+        checkInterrupted(listener);
         checkContextSize(messages);
         String prompt = systemPromptBuilder.build(request.action());
         if (finalRound) {
             prompt += "\n工具调用次数已用完。请根据已有结果生成最终回答，明确仍然缺失的信息，勿再调用工具。\n";
         }
         return llmService.complete(new LlmService.Request(
-                prompt, messages, tools));
+                prompt, messages, tools), listener);
     }
 
     private String userPrompt(AgentRequest request, List<KnowledgeChunk> chunks) {
@@ -238,8 +248,8 @@ public final class AgentLoop implements AgentService {
         return value == null || value.isBlank();
     }
 
-    private void checkInterrupted() {
-        if (Thread.currentThread().isInterrupted()) {
+    private void checkInterrupted(StreamListener listener) {
+        if (listener.isCancelled() || Thread.currentThread().isInterrupted()) {
             throw new CancellationException();
         }
     }
