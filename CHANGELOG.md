@@ -22,6 +22,7 @@
 
 ### Changed
 
+- The three smart actions ask the gateway to skip its reasoning pass (`chat_template_kwargs: {"thinking": false}`), so a generated test, commit message or exercise no longer waits several seconds for deliberation the interface never shows; a question still allows the pass. The client also reads the gateway's `reasoning` delta alongside `reasoning_content`, so that text is kept for the next tool round and counted instead of vanishing, and the reasoning-only truncation guard now fires on this gateway.
 - A question the relevance gate rejects no longer comes back empty: the best-ranked course chunk is passed to the model as unverified context, so an answer can still use material the decks cover while citing nothing and reporting general knowledge only.
 - Translate all user-facing Chinese into English: the UI message bundle, the teaching assistant prompts, hardcoded error and log messages, code comments and Javadoc, and the README, API, RAG design and UI guide documents. The teaching assistant now answers in English. `CONVENTION.md` keeps its original Chinese, and the CJK tokenizer tests keep their Chinese input because that is the behavior under test.
 - Sources, elapsed time and message actions now sit in a separate strip below each answer instead of inside the card, and the transcript measures rows at their actual width after a resize.

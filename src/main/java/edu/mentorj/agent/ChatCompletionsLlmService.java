@@ -142,6 +142,14 @@ public final class ChatCompletionsLlmService implements LlmService {
             throw new LlmException("llm.unsupportedMessage");
         }
         body.add("messages", messages);
+        if (!request.thinking()) {
+            // The gateway serves a reasoning model, and the switch lives in the chat template rather than in a
+            // top-level OpenAI field. Unknown template arguments make a strict gateway reject the request, so it
+            // is sent only when the caller asked for the pass to be off.
+            JsonObject templateArguments = new JsonObject();
+            templateArguments.addProperty("thinking", false);
+            body.add("chat_template_kwargs", templateArguments);
+        }
         if (!request.tools().isEmpty()) {
             JsonArray definitions = new JsonArray();
             Set<String> names = new HashSet<>();
@@ -265,7 +273,7 @@ public final class ChatCompletionsLlmService implements LlmService {
             if (calls.isEmpty() && (blank(content) || "tool_calls".equals(finishReason))) {
                 throw new LlmException("llm.invalidResponse");
             }
-            return new Result(content, calls, string(message, "reasoning_content"));
+            return new Result(content, calls, reasoning(message));
         } catch (JsonParseException | IllegalStateException | ClassCastException | UnsupportedOperationException e) {
             throw new LlmException("llm.invalidResponse");
         }
@@ -425,7 +433,7 @@ public final class ChatCompletionsLlmService implements LlmService {
                     listener.onText(text);
                 }
                 // Reasoning is only replayed to the provider on the next round, never shown as an answer.
-                String thinking = string(delta, "reasoning_content");
+                String thinking = reasoning(delta);
                 if (thinking != null) {
                     reasoning.append(thinking);
                 }
@@ -561,6 +569,24 @@ public final class ChatCompletionsLlmService implements LlmService {
         private String name;
         private boolean argumentsSeen;
         private final StringBuilder arguments = new StringBuilder();
+    }
+
+    /**
+     * Reasoning text of one message or delta. OpenAI-compatible gateways send it as {@code reasoning_content},
+     * while the Tongji deployment names the field {@code reasoning}; both are read so the text is kept for the
+     * next tool round and counted as reasoning instead of vanishing.
+     */
+    private String reasoning(JsonObject object) {
+        String thinking = string(object, "reasoning_content");
+        if (thinking != null && !thinking.isEmpty()) {
+            return thinking;
+        }
+        // The fallback field has no contract, so a non-string value is ignored instead of failing the answer.
+        JsonElement fallback = object.get("reasoning");
+        if (fallback == null || !fallback.isJsonPrimitive() || !fallback.getAsJsonPrimitive().isString()) {
+            return null;
+        }
+        return fallback.getAsString();
     }
 
     private String string(JsonObject object, String key) {
