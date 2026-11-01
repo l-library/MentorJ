@@ -6,10 +6,11 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 检索用的分词：拉丁词拆驼峰与下划线，CJK 用单字加二元组。
+ * Tokenizer for retrieval: Latin words split on camel case and underscores, CJK uses unigrams plus bigrams.
  *
- * <p>为什么不按语言做假设：导入的材料可能是任何语言的，写死“中文查询翻成英文”等于给插件绑一个
- * 错误前提。CJK 走单字 + 二元组，中文查询至少能部分命中，不会整句零命中。
+ * <p>Why no per-language assumptions: the imported material may be in any language, so hardcoding "translate
+ * Chinese queries into English" would bake a wrong premise into the plugin. CJK uses single characters plus
+ * bigrams, so a Chinese query still hits some tokens instead of returning nothing for the whole sentence.
  */
 final class Tokenizer {
 
@@ -49,7 +50,7 @@ final class Tokenizer {
         return tokens;
     }
 
-    /** 一个连续字母数字串可能混着 CJK 与拉丁，先按类别拆开再分别处理。 */
+    /** One run of letters and digits may mix CJK with Latin, so split by class first and handle each part. */
     private static void flush(StringBuilder run, List<String> tokens) {
         if (run.length() == 0) {
             return;
@@ -85,12 +86,13 @@ final class Tokenizer {
         }
         addWord(word, tokens);
         if (segments > 0) {
-            // 驼峰拆成多段时额外保留整词，否则 @BeforeEach 会被拆成 before / each 两个停用词而整词丢失。
+            // When camel case splits into several segments, keep the whole word too; otherwise @BeforeEach splits into
+            // before / each, both stopwords, and the whole identifier is lost.
             addWord(new StringBuilder(run), tokens);
         }
     }
 
-    /** {@code getUserId} 在 {@code U} 处断开，{@code XMLParser} 在 {@code P} 处断开。 */
+    /** {@code getUserId} breaks at {@code U}, {@code XMLParser} breaks at {@code P}. */
     private static boolean isWordStart(CharSequence run, int index) {
         char previous = run.charAt(index - 1);
         if (Character.isLowerCase(previous) || Character.isDigit(previous)) {

@@ -1,7 +1,7 @@
 package edu.mentorj.api;
 
 /**
- * 一条来源引用：回答引用的课程材料文档与页码 / 范围。
+ * One source citation: the course material document and page / scope an answer cites.
  */
 public record Citation(String document, String pageOrScope) {
 }

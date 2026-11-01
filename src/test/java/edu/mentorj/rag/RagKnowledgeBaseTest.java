@@ -33,7 +33,7 @@ public class RagKnowledgeBaseTest {
 
         assertEquals(1.0, chunks.get(0).score(), 1e-9);
         for (KnowledgeChunk chunk : chunks) {
-            assertTrue("score 落在 (0, 1]：" + chunk.score(), chunk.score() > 0 && chunk.score() <= 1.0);
+            assertTrue("score falls in (0, 1]: " + chunk.score(), chunk.score() > 0 && chunk.score() <= 1.0);
         }
     }
 
@@ -57,7 +57,7 @@ public class RagKnowledgeBaseTest {
 
     @Test
     public void dropsChunksThatCoverTooLittleOfTheQuery() {
-        // 三个词只命中一个：按闸门规则不该当引用材料拿去用。
+        // Only one of the three terms hits: the gate says that is not material worth citing.
         assertEquals(List.of(), knowledgeBase().retrieve("kafka partitioning exception", 5));
     }
 }

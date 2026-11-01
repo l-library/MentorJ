@@ -74,7 +74,7 @@ public class RagDocumentLibraryTest {
         RagKnowledgeBase restored = new RagKnowledgeBase(indexFile);
         List<KnowledgeChunk> hits = restored.retrieve("counter reset", 3);
 
-        assertFalse("重启后应能检索到", hits.isEmpty());
+        assertFalse("retrieval must work after a restart", hits.isEmpty());
         assertEquals("a.pdf", hits.get(0).document());
         assertEquals("p.2", hits.get(0).pageOrScope());
         assertNotNull(restored.statistics().indexedAt());

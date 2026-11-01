@@ -3,29 +3,31 @@ package edu.mentorj.api;
 import java.util.List;
 
 /**
- * 回答增量回调。纯 Java 类型，避免 {@code api} 包依赖平台 API。
+ * Answer increment callback. A plain Java type, which keeps the {@code api} package free of platform APIs.
  *
- * <p>回调在调用方的后台线程上执行，需要更新界面时由界面组自行切回 EDT。
- * 增量按顺序拼接等于最终 {@code AgentResponse.text()}；实现也可以一次性回调全文。
+ * <p>Callbacks run on the caller's background thread; the UI team switches back to the EDT itself when it needs
+ * to update the UI. Concatenating the increments in order equals the final {@code AgentResponse.text()};
+ * an implementation may also call back once with the whole text.
  */
 public interface StreamListener {
 
     /**
-     * 回答正文增量。
+     * An increment of the answer body.
      *
-     * @param delta 新增的正文片段，非空
+     * @param delta the newly added text fragment, non-empty
      */
     void onText(String delta);
 
     /**
-     * 本轮以工具调用结束：此前收到的正文增量不是最终回答，界面应丢弃并显示工具状态。
+     * This round ended in tool calls: the text increments received so far are not the final answer, so the UI
+     * should discard them and show the tool status.
      *
-     * @param toolNames 本轮要执行的工具名，按调用顺序
+     * @param toolNames names of the tools to run this round, in call order
      */
     default void onToolCalls(List<String> toolNames) {
     }
 
-    /** 取消轮询；返回 {@code true} 时请求应尽快收尾。 */
+    /** Cancel polling; when it returns {@code true} the request should wind down as soon as possible. */
     default boolean isCancelled() {
         return false;
     }

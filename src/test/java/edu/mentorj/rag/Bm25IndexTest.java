@@ -36,7 +36,7 @@ public class Bm25IndexTest {
 
         List<Bm25Index.Hit> hits = index.search("assertion failures type", 5);
 
-        // "assertion / failures / type" 三个词，两块各覆盖 2 个和 1 个。
+        // Three query terms: "assertion / failures / type", and the two chunks cover 2 and 1 of them.
         assertEquals(2, hits.size());
         assertEquals(0, hits.get(0).chunk());
         assertEquals(2 / 3.0, hits.get(0).coverage(), 1e-9);
@@ -58,7 +58,7 @@ public class Bm25IndexTest {
                 chunk("java collections framework", "p.2"),
                 chunk("java reflection api", "p.3")));
 
-        // "reflection" 只出现在一个块里，idf 高；"java" 出现在所有块里，idf 接近 0。
+        // "reflection" appears in one chunk only, so its idf is high; "java" is everywhere, so its idf is near 0.
         assertEquals(2, chunksOf(index.search("java reflection", 1)).get(0).intValue());
     }
 

@@ -18,40 +18,45 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * 课程材料知识库：DocumentProcessor 切出的知识块入库，供 agent 检索。
+ * Course material knowledge base: stores the chunks DocumentProcessor produced and serves them to the agent.
  *
- * <p>检索分两路，排名用 RRF（reciprocal rank fusion）融合：BM25 词法、embedding 语义。语义那一路
- * 需要索引里有向量且配了 API key，任一条件不满足就自动退回纯 BM25，引用与页码照样有效。
+ * <p>Retrieval has two paths whose rankings are fused with RRF (reciprocal rank fusion): BM25 lexical and
+ * embedding semantic. The semantic path needs vectors in the index and a configured API key; when either is
+ * missing it falls back to pure BM25 automatically, and citations and page numbers stay just as valid.
  *
- * <p>{@code KnowledgeChunk.score} 是融合分并归一化到 (0, 1]：在两路都排第一的块得 1.0。之所以不
- * 直接暴露 BM25 原始分，是它没有上界（可能是 0.5 也可能是 18），界面无法展示，也没法和语义分放在
- * 一起比较。
+ * <p>{@code KnowledgeChunk.score} is the fused score normalized into (0, 1]: a chunk ranked first by both
+ * paths scores 1.0. The raw BM25 score is deliberately not exposed, because it has no upper bound (it may be
+ * 0.5 or 18), so the UI could not display it and it could not be compared with a semantic score.
  *
- * <p>带索引文件路径时，索引在**首次使用时**才从磁盘加载，不在构造函数里做：项目级 service 是在
- * EDT 上实例化的，构造函数里读文件等于往 EDT 上塞磁盘 IO。
+ * <p>With an index file path, the index loads from disk on **first use**, never in the constructor: the
+ * project-level service is created on the EDT, so reading a file in the constructor means putting disk I/O
+ * on the EDT.
  */
 public final class RagKnowledgeBase implements KnowledgeBase {
 
     private static final Logger LOG = Logger.getLogger(RagKnowledgeBase.class.getName());
 
     private static final int RRF_K = 60;
-    /** 每路各取前若干名参与融合；名次再靠后的块不值得占用上下文。 */
+    /** Takes the top ranks from each path into the fusion; chunks ranked lower are not worth the context. */
     private static final int RRF_DEPTH = 20;
     /*
-     * 相关性闸门。没有闸门时，只要有一个词命中就返回结果，于是“课件里没有的内容”也会带上一
-     * 条假引用，而作业要求检索不到时明确声明只用通用知识。
+     * Relevance gate. Without it, a single matching term returns results, so content the slides never cover
+     * still picks up a fake citation, while the assignment requires stating plainly that only general
+     * knowledge is used when retrieval finds nothing.
      *
-     * 阈值是量出来的（218 块，18 条查询，见 docs/RAG-DESIGN.md §5.2）。为什么不卡绝对余弦：
-     * 同一问题的不同写法彼此余弦只有 0.91–0.98，实测“How do I read a file line by line?”是
-     * 0.545、全小写版是 0.423，绝对阈值会被措辞直接推过线。改用**相对信号**：
-     * 榜首与中位数的差，正例最低 0.319、负例最高 0.280，没有重叠。
+     * The thresholds are measured (218 chunks, 18 queries, see docs/RAG-DESIGN.md §5.2). Why not gate on an
+     * absolute cosine: different wordings of the same question sit only 0.91-0.98 apart, and in practice
+     * "How do I read a file line by line?" scores 0.545 while its all-lowercase version scores 0.423, so a
+     * wording change alone pushes a query across an absolute threshold. The gate uses a **relative signal**
+     * instead: the gap between the top score and the median, with true positives bottoming out at 0.319 and
+     * negatives peaking at 0.280, so the two do not overlap.
      */
     private static final double MIN_TOP_GAP = 0.30;
-    /** 榜首余弦足够高时可以直接判定语料覆盖了这个问题，不再要求差值。 */
+    /** When the top cosine is high enough, the corpus is taken to cover the question and no gap is required. */
     private static final double DECISIVE_SIMILARITY = 0.60;
-    /** 单个块要进入引用列表的最低余弦，用来剪掉榜首之后的跑题块。 */
+    /** Lowest cosine for a chunk to enter the citation list, which trims off-topic chunks ranked below the top one. */
     private static final double MIN_SIMILARITY = 0.45;
-    /** 没有向量时的退路：查询词至少一半出现在同一块里。 */
+    /** Fallback with no vectors: at least half of the query terms must appear in the same chunk. */
     private static final double MIN_COVERAGE = 0.50;
 
     private final Path indexFile;
@@ -62,13 +67,14 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     private volatile Bm25Index bm25 = Bm25Index.of(List.of());
     private volatile Instant indexedAt;
     /**
-     * 语义检索是否还可信。端点挂掉后不再每次提问都去等超时，本次会话直接退回 BM25；重新导入会打开它。
+     * Whether semantic retrieval is still trustworthy. After the endpoint fails, no further question waits for
+     * a timeout and this session falls back to BM25; a re-import turns it back on.
      */
     private volatile boolean semanticUsable = true;
-    /** 只在 {@link #ensureLoaded()} 与写入方法里读写，由 this 的锁保护。 */
+    /** Read and written only in {@link #ensureLoaded()} and the write methods, guarded by this object's lock. */
     private boolean loaded;
 
-    /** 纯内存知识库，退出即丢，用于测试与没有项目路径的场景。 */
+    /** Pure in-memory knowledge base, lost on exit, used by tests and by scenarios without a project path. */
     public RagKnowledgeBase() {
         this(null, null);
     }
@@ -78,8 +84,8 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
-     * @param indexFile         索引文件路径；{@code null} 表示只存内存
-     * @param embeddingProvider 向量化实现；{@code null} 表示只用 BM25
+     * @param indexFile         index file path; {@code null} means in-memory only
+     * @param embeddingProvider embedding implementation; {@code null} means BM25 only
      */
     public RagKnowledgeBase(Path indexFile, EmbeddingProvider embeddingProvider) {
         this.indexFile = indexFile;
@@ -127,7 +133,8 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
-     * @return 查询向量；没配 provider、本次会话已降级或调用失败时返回 {@code null}
+     * @return the query vector; {@code null} when no provider is configured, this session already degraded, or
+     *         the call failed
      */
     private float[] queryVector(String query) {
         if (embeddingProvider == null || !semanticUsable) {
@@ -136,9 +143,10 @@ public final class RagKnowledgeBase implements KnowledgeBase {
         try {
             return embeddingProvider.embedQuery(query);
         } catch (IOException e) {
-            // 端点不可用不该让提问失败：关掉语义这一路，本次会话老老实实用 BM25。
+            // An unavailable endpoint must not fail the question: turn off the semantic path, use BM25 this session.
             semanticUsable = false;
-            LOG.log(Level.WARNING, "语义检索不可用，本次会话退回纯 BM25：" + e.getMessage(), e);
+            LOG.log(Level.WARNING,
+                    "Semantic retrieval unavailable, falling back to BM25 for this session: " + e.getMessage(), e);
             return null;
         }
     }
@@ -153,10 +161,11 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
-     * 语料是否覆盖了这个问题。
+     * Whether the corpus covers this question.
      *
-     * <p>两个信号取或：榜首明显高于中位数，说明语料里确实有一块紧扣问题；或者榜首本身余弦够高，
-     * 说明它就是答案。两者都不满足时，语料里没有相关内容，调用方据此声明“仅通用知识”。
+     * <p>Two signals combined with OR: the top score sits well above the median, meaning one chunk in the
+     * corpus really is on point; or the top cosine is high enough on its own, meaning it is the answer. When
+     * neither holds, the corpus has nothing relevant, and the caller states that only general knowledge is used.
      */
     static boolean coversQuestion(double[] similarities) {
         double[] sorted = similarities.clone();
@@ -167,9 +176,9 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
-     * 按余弦相似度排名。
+     * Rank by cosine similarity.
      *
-     * @return 命中的块号，按余弦降序；低于闸门的块不参与融合
+     * @return matched chunk indexes in descending cosine order; chunks below the gate do not join the fusion
      */
     private List<Integer> semanticRanking(double[] similarities) {
         Map<Integer, Double> scores = new HashMap<>();
@@ -186,7 +195,7 @@ public final class RagKnowledgeBase implements KnowledgeBase {
                 .toList();
     }
 
-    /** 向量来自不同实现时未必归一化，所以老老实实除以模长，而不是直接用点积。 */
+    /** Vectors from different implementations are not necessarily normalized, so divide by the magnitudes. */
     private static double cosine(float[] left, float[] right) {
         if (left.length != right.length) {
             return 0;
@@ -205,7 +214,8 @@ public final class RagKnowledgeBase implements KnowledgeBase {
         return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
     }
 
-    /** 用新知识块整体替换现有索引，并写盘。写盘失败时降级为本次会话内存有效。 */
+    /** Replace the index wholesale with the new chunks and write it to disk. A failed write degrades to
+     * memory-only for this session. */
     public synchronized void index(List<KnowledgeChunk> newChunks) {
         List<KnowledgeChunk> copy = List.copyOf(newChunks);
         List<float[]> newVectors = embed(copy);
@@ -215,7 +225,8 @@ public final class RagKnowledgeBase implements KnowledgeBase {
             try {
                 IndexStore.write(indexFile, copy, newVectors, now);
             } catch (IOException e) {
-                LOG.log(Level.WARNING, "索引写盘失败，本次会话仍可用，重启后需重新导入：" + indexFile, e);
+                LOG.log(Level.WARNING, "Writing the index failed; it stays usable for this session but must be "
+                        + "re-imported after a restart: " + indexFile, e);
             }
         }
         this.chunks = copy;
@@ -227,9 +238,10 @@ public final class RagKnowledgeBase implements KnowledgeBase {
     }
 
     /**
-     * 逐块向量化。
+     * Vectorize chunk by chunk.
      *
-     * <p>失败时返回空表而不是抛异常：导入的文档仍然值得留住，检索只是退回 BM25，好过整批导入白做。
+     * <p>On failure it returns an empty list instead of throwing: the imported documents are still worth
+     * keeping, and retrieval degrading to BM25 beats wasting the whole import.
      */
     private List<float[]> embed(List<KnowledgeChunk> chunks) {
         if (embeddingProvider == null || chunks.isEmpty()) {
@@ -239,18 +251,18 @@ public final class RagKnowledgeBase implements KnowledgeBase {
         try {
             List<float[]> newVectors = embeddingProvider.embed(texts);
             if (newVectors.size() != chunks.size()) {
-                LOG.warning("向量数与知识块数不一致（" + newVectors.size() + " vs " + chunks.size() + "），"
-                        + "本次只建词法索引");
+                LOG.warning("Vector count does not match chunk count (" + newVectors.size() + " vs "
+                        + chunks.size() + "); building the lexical index only");
                 return List.of();
             }
             return List.copyOf(newVectors);
         } catch (IOException e) {
-            LOG.log(Level.WARNING, "向量化失败，本次只建词法索引：" + e.getMessage(), e);
+            LOG.log(Level.WARNING, "Vectorization failed; building the lexical index only: " + e.getMessage(), e);
             return List.of();
         }
     }
 
-    /** 清空索引并删掉磁盘上的索引文件。 */
+    /** Clear the index and delete the index file on disk. */
     public synchronized void clear() {
         this.chunks = List.of();
         this.vectors = List.of();
@@ -262,7 +274,7 @@ public final class RagKnowledgeBase implements KnowledgeBase {
             try {
                 Files.deleteIfExists(indexFile);
             } catch (IOException e) {
-                LOG.log(Level.WARNING, "索引文件删除失败：" + indexFile, e);
+                LOG.log(Level.WARNING, "Deleting the index file failed: " + indexFile, e);
             }
         }
     }
@@ -292,8 +304,8 @@ public final class RagKnowledgeBase implements KnowledgeBase {
             this.bm25 = Bm25Index.of(restored.chunks());
             this.indexedAt = restored.generatedAt();
         } catch (IOException e) {
-            // 索引损坏时按“没有索引”处理：用户重新导入即可，不能因此让侧边栏打不开。
-            LOG.log(Level.WARNING, "索引读取失败，按空索引处理：" + indexFile, e);
+            // Treat a corrupt index as "no index": the user can simply re-import, and the sidebar must still open.
+            LOG.log(Level.WARNING, "Reading the index failed; treating it as empty: " + indexFile, e);
         }
     }
 

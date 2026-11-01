@@ -16,10 +16,11 @@ import edu.mentorj.api.AgentRequest;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * 生成 Git 提交消息：分析 staged 改动并按 Conventional Commits 生成提交消息。
+ * Generate Git commit message: analyze staged changes and write a Conventional Commits message.
  *
- * <p>采集 diff 要起一个 git 进程，不能在 EDT 上等，因此在后台线程读完改动再发请求；
- * 没有暂存改动或不是 Git 仓库时给出明确提示，不把空字符串交给 agent。
+ * <p>Collecting the diff has to spawn a git process, which cannot be waited on from the EDT, so the changes
+ * are read on a background thread before the request goes out. When nothing is staged or the project is not
+ * a Git repository, the action says so plainly instead of handing an empty string to the agent.
  */
 public final class GenerateCommitMessageAction extends AnAction implements DumbAware {
 

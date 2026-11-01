@@ -19,8 +19,8 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 
 /**
- * AgentService 实现：检索知识块 → 组装提示词 → 调 LLM → 工具循环 → 组装回答。
- * 知识块来源直接作为回答引用（citations），检索为空时标记 generalKnowledgeOnly。
+ * AgentService implementation: retrieve chunks -> assemble prompt -> call the LLM -> tool loop -> assemble the answer.
+ * Chunk sources become the answer citations directly; an empty retrieval sets generalKnowledgeOnly.
  */
 public final class AgentLoop implements AgentService {
 
@@ -140,7 +140,7 @@ public final class AgentLoop implements AgentService {
                 }
             }
             case CREATIVE -> {
-                // 创意动作围绕给定代码出题，没有代码就没有出题对象。
+                // The creative action writes exercises about the given code, so it needs code to build on.
                 if (request.editorContext() == null
                         || (blank(request.editorContext().selectedCode())
                         && blank(request.editorContext().sourceCode()))) {
@@ -173,8 +173,9 @@ public final class AgentLoop implements AgentService {
     }
 
     /**
-     * 检索用查询：创意动作允许用户不写补充要求，此时用选中代码（或整个文件）检索，
-     * 既避免空串进入检索，也比一句泛泛的“帮我出题”更贴近代码里的知识点。
+     * Retrieval query: the creative action lets the user skip the extra requirements, and then the selected
+     * code (or the whole file) drives retrieval. That keeps an empty string out of retrieval and lands much
+     * closer to the concepts in the code than a vague "give me exercises" would.
      */
     private String retrievalQuery(AgentRequest request) {
         if (blank(request.userInput()) && request.editorContext() != null) {
@@ -191,7 +192,9 @@ public final class AgentLoop implements AgentService {
         checkContextSize(messages);
         String prompt = systemPromptBuilder.build(request.action());
         if (finalRound) {
-            prompt += "\n工具调用次数已用完。请根据已有结果生成最终回答，明确仍然缺失的信息，勿再调用工具。\n";
+            prompt += "\nThe tool call budget is exhausted. Produce the final answer from the results you "
+                    + "already have, "
+                    + "state clearly what is still missing, and do not call any more tools.\n";
         }
         return llmService.complete(new LlmService.Request(
                 prompt, messages, tools), listener);
@@ -200,29 +203,29 @@ public final class AgentLoop implements AgentService {
     private String userPrompt(AgentRequest request, List<KnowledgeChunk> chunks) {
         StringBuilder prompt = new StringBuilder();
         if (!chunks.isEmpty()) {
-            prompt.append("以下是检索到的课程材料：\n");
+            prompt.append("Retrieved course material:\n");
             for (KnowledgeChunk chunk : chunks) {
-                prompt.append("- [来源: %s，页码/范围: %s]\n%s\n"
+                prompt.append("- [source: %s, page/scope: %s]\n%s\n"
                         .formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
             }
             prompt.append('\n');
         }
         if (request.action() != AgentAction.GENERATE_COMMIT_MESSAGE && request.editorContext() != null) {
             if (request.editorContext().filePath() != null) {
-                prompt.append("文件路径：%s\n".formatted(request.editorContext().filePath()));
+                prompt.append("File path: %s\n".formatted(request.editorContext().filePath()));
             }
             if (request.editorContext().sourceCode() != null && !request.editorContext().sourceCode().isBlank()) {
-                prompt.append("文件源码：\n%s\n\n".formatted(request.editorContext().sourceCode()));
+                prompt.append("File source:\n%s\n\n".formatted(request.editorContext().sourceCode()));
             }
             if (request.editorContext().selectedCode() != null && !request.editorContext().selectedCode().isBlank()) {
-                prompt.append("选中的代码：\n%s\n\n".formatted(request.editorContext().selectedCode()));
+                prompt.append("Selected code:\n%s\n\n".formatted(request.editorContext().selectedCode()));
             }
         }
         if (request.action() == AgentAction.GENERATE_COMMIT_MESSAGE) {
-            prompt.append("staged 改动：\n%s\n\n".formatted(request.stagedDiff()));
+            prompt.append("Staged changes:\n%s\n\n".formatted(request.stagedDiff()));
         }
         if (request.userInput() != null) {
-            prompt.append("用户输入：\n%s".formatted(request.userInput()));
+            prompt.append("User input:\n%s".formatted(request.userInput()));
         }
         return prompt.toString();
     }

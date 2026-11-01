@@ -18,7 +18,7 @@ public class ChatTranscriptTest extends BasePlatformTestCase {
     public void testScrollbarAppearanceDoesNotClipCompletedAnswer() {
         ApplicationManager.getApplication().invokeAndWait(() -> {
             ChatTranscript transcript = new ChatTranscript(
-                    new MarkdownRenderer((code, language) -> List.of(), "复制"));
+                    new MarkdownRenderer((code, language) -> List.of(), "Copy"));
             transcript.setSize(520, 260);
             ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "");
             transcript.add(answer);
@@ -29,13 +29,21 @@ public class ChatTranscriptTest extends BasePlatformTestCase {
             layoutTwice(transcript);
 
             answer.done("""
-                    你可以这样提问，我能帮你更多，例如：
-                    1. 概念类：如 Spring 的 IoC/DI、Bean 作用域、AOP 代理方式、事务传播行为、Spring Boot 自动配置原理等。
-                    2. 代码类：把报错信息、堆栈或相关代码贴出来（说明类名、依赖、JDK/框架版本），我按你选中的代码逐行分析原因。
-                    3. 课程材料定位：告诉我关键词（如“事务传播”“自动配置”“JPA 映射”），我去课程材料里检索并标注来源文档与页码。
-                    4. 实验/作业思路：我可以给思路和最小可运行示例，但不会声称替你跑过测试或改过文件——这些操作在本次对话中并未执行。
-                    5. 补充一点更长的内容，用来验证滚动条出现后卡片高度会重新计算。
-                    6. 再来一行，确保正文高于可视区域。
+                    Here are ways to ask that get you more from me:
+                    1. Concepts: Spring IoC/DI, bean scopes, AOP proxying, transaction
+                        propagation, how Spring Boot auto-configuration works.
+                    2. Code: paste the error message, stack trace, or the relevant code (with class
+                        names, dependencies, and JDK/framework versions), and I will walk through the
+                        cause line by line against your selected code.
+                    3. Locating course material: give me keywords (such as "transaction propagation",
+                        "auto-configuration", "JPA mapping") and I will search the course material and
+                        cite the source document and page.
+                    4. Lab and assignment approach: I can outline an approach and a minimal runnable
+                        example, but I will not claim to have run your tests or edited your files,
+                        because none of that happened in this conversation.
+                    5. One more paragraph, to verify the card height is recomputed once the scrollbar
+                        appears.
+                    6. And one more line, so that the body is taller than the visible area.
                     """, List.of(new Citation("Lec-5-Building-AI-Powered-Java-Applications.pdf", "p.37")), false);
             transcript.refresh(answer);
             layoutTwice(transcript);

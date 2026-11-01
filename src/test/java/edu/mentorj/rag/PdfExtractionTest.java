@@ -26,8 +26,8 @@ import static org.junit.Assert.assertTrue;
 public class PdfExtractionTest {
 
     private static Path fixture() {
-        // 走 URI 而不是 getPath()：Windows 上 getPath() 会给出 "/E:/..." 这种带前导斜杠的串，
-        // Path.of 直接抛 InvalidPathException，测试只在 Windows 上挂。
+        // Use the URI rather than getPath(): on Windows getPath() yields a string like "/E:/..." with a leading
+        // slash, so Path.of throws InvalidPathException and the test only fails on Windows.
         URL resource = Objects.requireNonNull(PdfExtractionTest.class.getResource("/documents/two-pages.pdf"));
         try {
             return Path.of(resource.toURI());

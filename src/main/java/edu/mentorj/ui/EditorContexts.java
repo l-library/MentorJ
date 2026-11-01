@@ -6,7 +6,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import edu.mentorj.api.EditorContext;
 import org.jetbrains.annotations.NotNull;
 
-/** 界面组触发智能操作时采集编辑器上下文。 */
+/** Collects editor context when the UI team triggers an intelligent action. */
 final class EditorContexts {
 
     private EditorContexts() {
@@ -20,7 +20,7 @@ final class EditorContexts {
                 editor.getSelectionModel().getSelectedText());
     }
 
-    /** 生成 JUnit 测试只对 Java 文件有意义，菜单项据此决定是否出现。 */
+    /** Generating a JUnit test only makes sense for Java files, which is what decides whether the menu item appears. */
     static boolean isJavaFile(@NotNull Editor editor) {
         VirtualFile file = FileDocumentManager.getInstance().getFile(editor.getDocument());
         return file != null && "java".equalsIgnoreCase(file.getExtension());

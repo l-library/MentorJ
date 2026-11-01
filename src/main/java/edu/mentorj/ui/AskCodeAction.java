@@ -14,7 +14,7 @@ import edu.mentorj.api.AgentRequest;
 import edu.mentorj.api.EditorContext;
 import org.jetbrains.annotations.NotNull;
 
-/** 编辑器右键：就选中代码向助教提问。 */
+/** Editor context menu: ask the teaching assistant about the selected code. */
 public final class AskCodeAction extends AnAction implements DumbAware {
 
     @Override

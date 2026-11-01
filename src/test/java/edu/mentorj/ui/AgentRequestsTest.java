@@ -13,7 +13,7 @@ public class AgentRequestsTest {
 
     @Test
     public void treatsAnswersWithoutCitationsOrGeneralFlagAsErrors() {
-        assertTrue(AgentRequests.isError(new AgentResponse("LLM 尚未配置", List.of(), false)));
+        assertTrue(AgentRequests.isError(new AgentResponse("LLM is not configured", List.of(), false)));
         assertFalse(AgentRequests.isError(new AgentResponse("answer",
                 List.of(new Citation("Lec-3.pdf", "P12")), false)));
         assertFalse(AgentRequests.isError(new AgentResponse("answer", List.of(), true)));

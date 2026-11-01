@@ -1,13 +1,13 @@
 package edu.mentorj.api;
 
-/** 一次请求要执行的智能操作类型。 */
+/** The kind of intelligent action a request performs. */
 public enum AgentAction {
-    /** 课程问答：侧边栏提问或就选中代码提问。 */
+    /** Course Q&A: a sidebar question or a question about selected code. */
     ASK,
-    /** 按自然语言需求为选中的类 / 方法生成 JUnit 测试。 */
+    /** Generate a JUnit test for the selected class or method from a natural-language requirement. */
     GENERATE_UNIT_TEST,
-    /** 分析 staged 改动，生成 Git 提交消息。 */
+    /** Analyze staged changes and generate a Git commit message. */
     GENERATE_COMMIT_MESSAGE,
-    /** 团队自拟的创意智能操作，方案待定。 */
+    /** A team-chosen creative intelligent action; the design is still open. */
     CREATIVE
 }

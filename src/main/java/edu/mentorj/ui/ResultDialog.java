@@ -19,9 +19,10 @@ import java.awt.event.ActionEvent;
 import java.util.List;
 
 /**
- * 展示 agent 生成结果的对话框：回答、JUnit 测试类、练习题或提交消息。
+ * Dialog that shows what the agent generated: an answer, a JUnit test class, practice exercises, or a commit message.
  *
- * <p>打开即开始请求，正文按增量刷新；关闭或点停止都会取消后台任务，已收到的部分保留。
+ * <p>Opening it starts the request; the body refreshes by increments. Closing it or pressing stop cancels the
+ * background task, and whatever was received is kept.
  */
 final class ResultDialog extends DialogWrapper implements Disposable {
 

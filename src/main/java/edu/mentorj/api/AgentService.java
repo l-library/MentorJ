@@ -1,18 +1,20 @@
 package edu.mentorj.api;
 
-/** agent 的唯一入口，agent 核心组实现，界面组调用。 */
+/** The single entry point to the agent: implemented by the agent core team, called by the UI team. */
 public interface AgentService {
 
     /**
-     * 处理一次请求并返回回答。同步阻塞，调用方必须放在后台线程，禁止在 EDT 调用。
+     * Handle one request and return the answer. Blocks synchronously, so the caller must run it on a
+     * background thread and never on the EDT.
      */
     AgentResponse respond(AgentRequest request);
 
     /**
-     * 处理一次请求，并在生成过程中回调增量。
+     * Handle one request and stream the increments while generating.
      *
-     * <p>同步阻塞，调用方必须放在后台线程；{@code listener} 也在这条后台线程上被回调。
-     * 默认实现退化为完成后回调一次正文，保证旧实现无需修改。
+     * <p>Blocks synchronously, so the caller must run it on a background thread; {@code listener} is also called
+     * back on that background thread. The default implementation degrades to one callback with the whole body
+     * once generation finishes, so existing implementations need no change.
      */
     default AgentResponse respond(AgentRequest request, StreamListener listener) {
         AgentResponse response = respond(request);

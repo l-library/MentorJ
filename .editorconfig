@@ -7,14 +7,14 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 indent_style = space
 
-# Java 缩进：4 空格
+# Java indentation: 4 spaces
 [*.{java,py,xml}]
 indent_size = 4
 
-# Markdown 行尾空格有意义（硬换行），不去除
+# Trailing spaces are meaningful in Markdown (hard line breaks), so do not trim them
 [*.md]
 trim_trailing_whitespace = false
 
-# Windows 批处理必须 CRLF（与 .gitattributes 一致）
+# Windows batch files must use CRLF (consistent with .gitattributes)
 [*.{bat,cmd}]
 end_of_line = crlf

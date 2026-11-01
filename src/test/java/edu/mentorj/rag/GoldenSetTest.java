@@ -18,33 +18,37 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 /**
- * 检索质量回归：拿真实课件跑 golden 集，输出命中率。
+ * Retrieval quality regression: run the golden set against the real lecture decks and report the hit rates.
  *
- * <p>为什么默认跳过：课件在 {@code assets/} 下且不进仓库，语义那一路还需要 API key，两者缺一个
- * 就无法复现。CI 里这个测试会 skip，本地配好环境后它就是改动检索逻辑前后的对照尺。
+ * <p>Why it is skipped by default: the decks live under {@code assets/} and are not in the repo, and the
+ * semantic path also needs an API key, so missing either one makes the test unreproducible. CI skips it; with
+ * a local environment configured it is the yardstick for before and after a retrieval change.
  *
- * <p>阈值取的是实测值向下留出余量，不是拍脑袋：调参后变红说明确实退化了。
+ * <p>The thresholds are the measured values with headroom left below them, not guesses: a change that turns
+ * this red really did regress.
  */
 public class GoldenSetTest {
 
     private static final Path ASSETS = Path.of("assets");
     private static final int TOP_K = 5;
-    /** 页级命中率下限。实测 0.93，留出余量后卡在这里，调参后变红就说明退化了。 */
+    /** Page-level hit rate floor. Measured 0.93, capped here with headroom, so turning this red means a regression. */
     private static final double MIN_PAGE_HIT_RATE = 0.85;
 
     @Test
     public void answersTheGoldenSet() throws IOException {
-        assumeTrue("assets/ 下没有课件，跳过 golden 集", Files.isDirectory(ASSETS));
+        assumeTrue("no lecture decks under assets/, skipping the golden set", Files.isDirectory(ASSETS));
         TongjiEmbeddingClient provider = TongjiEmbeddingClient.fromEnvironment();
-        assumeTrue("未配置 " + TongjiEmbeddingClient.API_KEY_ENV + "，跳过语义检索评测", provider != null);
+        assumeTrue("" + TongjiEmbeddingClient.API_KEY_ENV + " is not configured, skipping the semantic evaluation",
+                provider != null);
 
         RagKnowledgeBase knowledgeBase = new RagKnowledgeBase(null, provider);
         knowledgeBase.index(processCorpus());
         GoldenResult result = evaluate(knowledgeBase, questions());
 
         System.out.println(result.report());
-        assertTrue("页级命中率：" + result.report(), result.pageHitRate() >= MIN_PAGE_HIT_RATE);
-        assertEquals("负例必须全部返回空结果：" + result.report(), List.of(), result.leakedNegatives());
+        assertTrue("page-level hit rate: " + result.report(), result.pageHitRate() >= MIN_PAGE_HIT_RATE);
+        assertEquals("negatives must all return empty results: " + result.report(), List.of(),
+                result.leakedNegatives());
     }
 
     private static List<KnowledgeChunk> processCorpus() throws IOException {
@@ -59,7 +63,7 @@ public class GoldenSetTest {
             try {
                 chunks.addAll(processor.process(file));
             } catch (DocumentProcessingException e) {
-                throw new IllegalStateException("课件解析失败：" + e.getMessage(), e);
+                throw new IllegalStateException("Failed to parse lecture deck: " + e.getMessage(), e);
             }
         }
         return chunks;
@@ -101,8 +105,8 @@ public class GoldenSetTest {
                 pageHits++;
                 reciprocalRanks += 1.0 / rank;
             } else {
-                misses.add(question.text() + " (期望 " + question.document() + " " + question.page() + "，"
-                        + "实际 " + describe(hits) + ")");
+                misses.add(question.text() + " (expected " + question.document() + " " + question.page() + ", "
+                        + "got " + describe(hits) + ")");
             }
             if (hits.stream().anyMatch(hit -> hit.document().equals(question.document()))) {
                 documentHits++;
@@ -112,7 +116,7 @@ public class GoldenSetTest {
                 misses, leaked);
     }
 
-    /** @return 期望页第一次出现的名次（1 起）；没命中返回 0 */
+    /** @return the rank at which the expected page first appears (1-based); 0 when it is not hit */
     private static int rankOf(List<KnowledgeChunk> hits, Question question) {
         for (int i = 0; i < hits.size(); i++) {
             KnowledgeChunk hit = hits.get(i);
@@ -125,7 +129,7 @@ public class GoldenSetTest {
 
     private static String describe(List<KnowledgeChunk> hits) {
         if (hits.isEmpty()) {
-            return "空结果";
+            return "no results";
         }
         return hits.stream().map(hit -> hit.document() + " " + hit.pageOrScope()).toList().toString();
     }
@@ -150,12 +154,12 @@ public class GoldenSetTest {
 
         String report() {
             return """
-                    golden: %d 条正例 / %d 条负例
-                     页级 top-%d 命中率 %.2f (%d/%d)
-                     文档级命中率 %.2f
+                    golden: %d positives / %d negatives
+                     page-level top-%d hit rate %.2f (%d/%d)
+                     document-level hit rate %.2f
                      MRR %.2f
-                     未命中: %s
-                     负例漏出: %s"""
+                     misses: %s
+                     leaked negatives: %s"""
                     .formatted(positives, leakedNegatives.size(), TOP_K, pageHitRate(), pageHits, positives,
                             documentHitRate(), mrr, misses, leakedNegatives);
         }

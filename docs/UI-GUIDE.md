@@ -1,193 +1,193 @@
-# MentorJ 界面使用手册
+# MentorJ UI guide
 
-本文件是界面组的使用说明与自测清单，对应作业要求的 *simple user manual (including UI samples)*。
-契约以 [API.md](../API.md) 为准，本文件只讲用户看到的入口、该期待什么、以及每种提示语的含义。
+This document is the UI team's usage guide and self-check list, covering the assignment's *simple user manual (including UI samples)*.
+The contract lives in [API.md](../API.md); this file covers only what the user sees, what to expect, and what each message means.
 
-## 1. 安装
+## 1. Installation
 
-### 1.1 安装包（日常使用）
+### 1.1 The install package (daily use)
 
 ```bash
 ./gradlew buildPlugin
 ```
 
-产物在 `build/distributions/MentorJ-1.0.0-SNAPSHOT.zip`，在 IDE 里 `Settings → Plugins → 齿轮 →
-Install Plugin from Disk` 选中该 zip，重启即可。装好后任何项目都能用，不限于本仓库。
+The artifact is `build/distributions/MentorJ-1.0.0-SNAPSHOT.zip`. In the IDE open `Settings → Plugins → gear icon →
+Install Plugin from Disk`, select the zip, and restart. Once installed it works in any project, not just this repository.
 
-### 1.2 沙箱（开发验证）
+### 1.2 Sandbox (development verification)
 
 ```bash
 ./gradlew runIde
 ```
 
-拉起一个 2025.3.6.1 的沙箱 IDE，配置目录独立。改完代码重跑即可，不需要手动装包。
+This starts a 2025.3.6.1 sandbox IDE with its own configuration directory. Re-run it after a code change; there is no need to install the package by hand.
 
-### 1.3 配置 API Key
+### 1.3 Configuring the API key
 
-插件只读环境变量，没有设置界面：
+The plugin reads environment variables only and has no settings UI:
 
-| 变量 | 必填 | 默认值 |
+| Variable | Required | Default |
 | --- | --- | --- |
-| `MENTORJ_LLM_API_KEY` | 是 | 无，缺失时所有请求返回配置错误 |
-| `MENTORJ_LLM_BASE_URL` | 否 | `https://agi.tongji.edu.cn/v1` |
-| `MENTORJ_LLM_MODEL` | 否 | `DeepSeek-V4.1-Flash` |
-| `MENTORJ_LLM_STREAM` | 否 | `true`；网关不兼容流式时设为 `false` |
-| `MENTORJ_LLM_TIMEOUT_SECONDS` | 否 | `90`；请求或流式空闲超时秒数 |
-| `MENTORJ_LLM_MAX_TOKENS` | 否 | `8192`；单次回答输出上限 |
+| `MENTORJ_LLM_API_KEY` | Yes | None; when absent every request returns a configuration error |
+| `MENTORJ_LLM_BASE_URL` | No | `https://agi.tongji.edu.cn/v1` |
+| `MENTORJ_LLM_MODEL` | No | `DeepSeek-V4.1-Flash` |
+| `MENTORJ_LLM_STREAM` | No | `true`; set it to `false` when the gateway cannot handle streaming |
+| `MENTORJ_LLM_TIMEOUT_SECONDS` | No | `90`; request or streaming idle timeout in seconds |
+| `MENTORJ_LLM_MAX_TOKENS` | No | `8192`; output limit per answer |
 
-环境变量必须在 **IDE 进程启动时**已经存在：
+The environment variable must already exist **when the IDE process starts**:
 
 ```powershell
-$env:MENTORJ_LLM_API_KEY = "你的key"
+$env:MENTORJ_LLM_API_KEY = "your key"
 & "E:\idea\bin\idea64.exe"
 ```
 
-从开始菜单双击启动的 IDEA 继承不到终端里的变量，这是“明明设了 key 却提示未配置”的唯一原因。
+An IDEA started from the Start menu does not inherit variables from your terminal, and that is the only reason to see "not configured" after setting a key.
 
-## 2. 界面总览
+## 2. UI overview
 
-侧边栏工具窗口 `MentorJ`（右侧竖排按钮，或 `View → Tool Windows → MentorJ`）分三段：
+The sidebar tool window `MentorJ` (the vertical button on the right, or `View → Tool Windows → MentorJ`) has three sections:
 
 ```
-┌──────────────────────────────────────────┐
-│ 导入课程材料   清空索引                    │
-│ 已索引 3 份文档、412 个知识块（10-31 20:12）│
-│                                  清空对话  │
-├──────────────────────────────────────────┤
-│ ┌ MentorJ                        12:04 ┐ │
-│ │ 封装是把数据和操作……                    │ │
-│ └───────────────────────────────────────┘ │
-│   参考来源（课程材料）：                    │
-│   — Lec-3.pdf（P12-P14）                   │
-│   耗时 8.2 秒                              │
-│   [复制] [重新生成]                        │
-│                      ┌ 你        12:06 ┐  │
-│                      │ 举个例子         │  │
-│                      └──────────────────┘  │
-├──────────────────────────────────────────┤
-│ 已附带选中代码：Foo.java:12-20      移除   │
-│ 正在检索课程材料…                          │
-│ [ 输入问题…                        ] [发送]│
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│ Import course material   Clear index          │
+│ Indexed 3 documents, 412 knowledge chunks     │
+│ (10-31 20:12)                    Clear chat   │
+├──────────────────────────────────────────────┤
+│ ┌ MentorJ                            12:04 ┐ │
+│ │ Encapsulation bundles data and the …      │ │
+│ └───────────────────────────────────────────┘ │
+│   Sources (course material):                  │
+│   — Lec-3.pdf (P12-P14)                       │
+│   8.2s                                        │
+│   [Copy] [Regenerate]                         │
+│                        ┌ You          12:06 ┐ │
+│                        │ an example         │ │
+│                        └────────────────────┘ │
+├──────────────────────────────────────────────┤
+│ Attached selected code: Foo.java:12-20  Remove│
+│ Searching course material…                    │
+│ [ Ask a question…                    ] [Send] │
+└──────────────────────────────────────────────┘
 ```
 
-消息卡片：用户问题右对齐；助教卡片只包含正文，参考来源、耗时和操作按钮在卡片下方
-**独立一条**，来源不会挤压正文。正文按 Markdown 渲染，代码块带语言标签和
-`复制` / `插入` 链接。
+Message cards: user questions are right-aligned; an assistant card holds only the body, while the sources, the elapsed time and the action buttons sit on a
+**separate row** below the card, so sources never squeeze the body. The body renders as Markdown, and code blocks carry a language label with
+`Copy` / `Insert` links.
 
-除侧边栏外还有四个入口：编辑器右键三个（就选中代码提问 / 生成单元测试 / 生成练习题），
-Tools 菜单一个（生成 Git 提交消息）。
+Besides the sidebar there are four entry points: three in the editor context menu (ask about selected code / generate unit test / generate practice exercises) and
+one in the Tools menu (generate Git commit message).
 
-## 3. 使用路径
+## 3. Usage paths
 
-### 3.1 导入课程材料
+### 3.1 Importing course material
 
-1. 点顶部 `导入课程材料`，文件选择框只接受 PDF
-2. 状态行依次显示 `正在导入 N 个文件…` → `导入中（1/3）：文件名` → `导入完成：3 份文档，412 个知识块。`
-3. 成功后有失败清单时会追加 `其中 1 个文件导入失败：` 加文件名——**导入失败不会被静默吞掉**
-4. 顶部状态行变为 `已索引 3 份文档、412 个知识块（时间）`
+1. Click `Import course material` at the top; the file chooser accepts PDFs only
+2. The status row goes `Importing N files…` → `Importing (1/3): file name` → `Import complete: 3 documents, 412 knowledge chunks.`
+3. When some files failed, the row appends `1 files failed to import:` plus the file names, so **an import failure is never swallowed silently**
+4. The status row becomes `Indexed 3 documents, 412 knowledge chunks (time)`
 
-`清空索引` 会先确认，清空后回答退回通用知识。
+`Clear index` asks for confirmation first; afterwards answers fall back to general knowledge.
 
-### 3.2 课程答疑（F0 主链路）
+### 3.2 Course Q&A (the F0 main path)
 
-输入问题 → 回车或点 `发送`。要观察的状态：
+Type a question and press Enter or click `Send`. What to watch:
 
-| 时刻 | 界面 |
+| Moment | UI |
 | --- | --- |
-| 立即 | 问题变成右侧气泡，出现空的助教卡片；发送变灰、`停止`可用，输入区上方显示 `正在思考…` |
-| 流式 | 正文逐字出现在助教卡片里；检索时状态变为 `正在检索课程材料…`，工具轮次的文字会被丢弃 |
-| 有引用 | 回答卡片下方独立显示 `参考来源（课程材料）` 与 `— 文件名（P14-P16）` |
-| 无引用 | 回答下方显示 `回答仅基于通用知识，未引用课程材料。` |
-| 中途取消 | 保留已收到的正文并标 `已取消本次请求。`，按钮恢复，可 `重新生成` |
-| 完成 | 回答下方出现 `复制` 与 `重新生成`；代码块头部有 `复制` / `插入` |
-| 失败 | 卡片变红并显示 agent 侧拼好的错误文案（如未配置 key、网络异常），界面不再二次包装 |
+| Immediately | The question becomes a bubble on the right and an empty assistant card appears; Send greys out, `Stop` becomes available, and `Thinking…` shows above the input area |
+| Streaming | Text appears character by character in the assistant card; while retrieving, the status becomes `Searching course material…`, and text from tool rounds is discarded |
+| With citations | Below the answer card, `Sources (course material):` and `— file name (P14-P16)` appear on their own row |
+| Without citations | Below the answer: `Answer is based on general knowledge; no course material was cited.` |
+| Cancelled midway | The text received so far is kept and marked `This request was cancelled.`, the buttons return, and `Regenerate` is available |
+| Done | `Copy` and `Regenerate` appear below the answer; a code block header shows `Copy` / `Insert` |
+| Failure | The card turns red and shows the error text the agent assembled (a missing key, a network problem), and the UI does not wrap it again |
 
-三个容易误判的点：
+Three things that are easy to misjudge:
 
-- **点发送后界面必须立刻响应**。若卡住几秒才动，说明请求跑在了 UI 线程上，属于缺陷。
-- **`参考来源` 为空不等于通用知识**。只有明确出现“仅基于通用知识”那句才是；两者都没有说明请求失败。
-- **对话历史只做本地展示**。模型每次请求独立，追问不会带上上一轮内容；但侧边栏会把最近 50 条问答保存在
-  项目的 `.idea/mentorj-chat.json`，关闭 tool window 或重启 IDE 后恢复，`清空对话` 可删除。
-- **流式依赖网关**。`MENTORJ_LLM_STREAM=false` 时回答一次性出现，其余界面行为不变。
+- **The UI must respond the moment Send is clicked.** A stall of a few seconds means the request runs on the UI thread, which is a defect.
+- **Empty `Sources` does not mean general knowledge.** Only the explicit "based on general knowledge" sentence means that; when neither appears, the request failed.
+- **Chat history is display-only and local.** Each request is independent, so a follow-up does not carry the previous turn; the sidebar does save the last 50 messages in
+  the project's `.idea/mentorj-chat.json`, restored after closing the tool window or restarting the IDE, and `Clear conversation` deletes them.
+- **Streaming depends on the gateway.** With `MENTORJ_LLM_STREAM=false` the answer appears all at once and the rest of the UI behaves the same.
 
-以下三个右键操作和 Tools 菜单的结果都打开结果对话框：打开即开始请求，正文流式出现，
-`停止` 可取消并保留已收到的内容，回答下方的 `复制` 复制原始 Markdown。
+The three context-menu actions and the Tools menu entry all open a result dialog: opening it starts the request, the body streams in,
+`Stop` cancels and keeps what was received, and `Copy` below the answer copies the raw Markdown.
 
-### 3.3 就选中代码提问
+### 3.3 Asking about selected code
 
-选中代码 → 右键 `就选中代码提问` → 输入问题 → 结果对话框。
+Select code → right-click `Ask About Selected Code` → type the question → the result dialog appears.
 
-- 未选中任何代码时，菜单项不出现
-- 输出去向是对话框而非侧边栏：单次任务、产出是一段可复制文本，一次看全更重要
+- When nothing is selected, the menu item is not shown
+- The output goes to a dialog rather than the sidebar, because this is a single task whose result is one copyable text and seeing all of it at once matters more
 
-### 3.4 生成单元测试（F1-1）
+### 3.4 Generating a unit test (F1-1)
 
-选中 Java 类或方法 → 右键 `生成单元测试` → 多行输入框描述场景
-（例：`测试用户 ID 不存在时抛出 IllegalArgumentException`）→ 结果对话框给 JUnit 类。
+Select a Java class or method → right-click `Generate Unit Test` → describe the scenario in the multi-line input
+(for example, `test that a missing user ID throws IllegalArgumentException`) → the result dialog returns a JUnit class.
 
-| 情况 | 提示 |
+| Situation | Message |
 | --- | --- |
-| 空输入直接确定 | `请先描述要测试的场景。` |
-| 未选中代码 | `请先选中要测试的 Java 类或方法。` |
-| 非 Java 文件 | 菜单项不出现 |
+| Confirming an empty input | `Describe the scenario to test first.` |
+| No code selected | `Select the Java class or method to test first.` |
+| A non-Java file | The menu item is not shown |
 
-### 3.5 生成练习题（F1-3 创意动作）
+### 3.5 Generating practice exercises (the F1-3 creative action)
 
-选中 Java 代码 → 右键 `生成练习题` → 输入框**可留空**。
+Select Java code → right-click `Generate Practice Exercises` → the input box **may stay empty**.
 
-- 留空：助教以选中代码本身作为检索查询，自行决定题型与难度
-- 填写：可用于约束侧重，例如 `只出改错题`、`加一道改编扩展题`
+- Empty: the teaching assistant uses the selected code itself as the retrieval query and picks the exercise types and difficulty on its own
+- Filled in: it constrains the focus, for example `only bug-finding exercises` or `add one adaptation exercise`
 
-输出结构：先列这段代码覆盖的知识点，再由易到难给 3 道题，每题附参考答案；命中课程材料时照常标页码。
-设计取向与其他动作相反——它是“出题考你”，不是“替你写”。
+Output structure: first the concepts this code covers, then 3 exercises of increasing difficulty, each with a reference answer; when course material matches, page numbers are cited as usual.
+Its design goal is the opposite of the other actions: it sets exercises to test you rather than writing code for you.
 
-### 3.6 生成 Git 提交消息（F1-2）
+### 3.6 Generating a Git commit message (F1-2)
 
-先 `git add` 暂存改动，再 `Tools → 生成 Git 提交消息`。
+Run `git add` to stage the changes first, then use `Tools → Generate Git Commit Message`.
 
-1. 出现 `读取暂存改动` 进度，界面组自己执行 `git diff --cached`
-2. 结果对话框给 Conventional Commits 格式的消息，可一键 `复制`
+1. A `Reading staged changes` progress appears; the UI team runs `git diff --cached` itself
+2. The result dialog shows a Conventional Commits message that can be copied in one click
 
-| 情况 | 提示 |
+| Situation | Message |
 | --- | --- |
-| 无暂存改动 | `没有暂存的改动。请先执行 git add 暂存需要提交的文件。` |
-| 非 Git 项目 | `当前项目没有本地目录，无法读取 Git 改动。` |
-| PATH 无 git | `找不到 git 命令。请确认已安装 Git，并在 PATH 中可以调用。` |
-| 30 秒未返回 | `读取暂存改动超时，请重试。` |
+| No staged changes | `No staged changes. Run git add to stage the files you want to commit.` |
+| Not a Git project | `The project has no local directory, so Git changes cannot be read.` |
+| No git on PATH | `Cannot find the git command. Make sure Git is installed and callable on PATH.` |
+| No answer within 30 seconds | `Reading staged changes timed out. Try again.` |
 
-### 3.7 消息操作与选中代码
+### 3.7 Message actions and selected code
 
-- `复制`：复制整条回答的原始 Markdown；代码块头部的 `复制` 只复制该段代码。
-- `重新生成`：只对最新一条回答出现，移除旧卡片并用同一请求重试；旧问答的历史记录随之更新。
-- `插入`：把代码块插入当前编辑器光标处，可用 Ctrl+Z 撤销；没有打开的编辑器时在输入区上方提示。
-- 选中代码后把焦点移到输入框，输入区上方出现 `已附带选中代码：文件名:起止行`，点 `移除` 取消。
-  只发送选中片段，不发送整文件，避免占用上下文额度。
-- Enter 发送，Shift+Enter 换行，Esc 停止生成；输入框最多自动增高到 5 行。
+- `Copy`: copies the raw Markdown of the whole answer; `Copy` in a code block header copies only that fragment.
+- `Regenerate`: shown only on the newest answer; it removes the old card and retries the same request, and the stored history follows along.
+- `Insert`: inserts the code block at the caret in the current editor and can be undone with Ctrl+Z; with no editor open, a message appears above the input area.
+- After selecting code, move focus to the input box and `Attached selected code: file name:start-end` appears above it; click `Remove` to drop it.
+  Only the selected fragment is sent, not the whole file, to save context budget.
+- Enter sends, Shift+Enter inserts a newline, Esc stops generation; the input box grows automatically up to 5 lines.
 
-## 4. 截图清单（报告用）
+## 4. Screenshot list (for the report)
 
-| 编号 | 内容 | 对应功能 |
+| Id | Content | Feature |
 | --- | --- | --- |
-| S1 | 侧边栏空状态 + 课程材料区 | F0 界面集成 |
-| S2 | 一次带引用的回答，引用区可见 | F0 引用来源 |
-| S3 | 一次无引用的回答，通用知识声明可见 | F0 通用知识声明 |
-| S4 | 导入进度 + 导入完成统计 | F0 课程材料 |
-| S5 | 右键菜单四项（含未选中时的隐藏） | F0 / F1 入口 |
-| S6 | 单测输入框 + 生成的 JUnit 类 | F1-1 |
-| S7 | 练习题对话框输出 | F1-3 |
-| S8 | 提交消息对话框 | F1-2 |
-| S9 | 流式输出中 + `正在检索课程材料…` 状态 | F0 流式 |
-| S10 | 消息操作：代码块 `复制` / `插入`、整条 `复制` / `重新生成` | F0 消息操作 |
-| S11 | 选中代码 chip + 多行输入（Shift+Enter） | F0 上下文 |
+| S1 | Sidebar empty state plus the course material section | F0 UI integration |
+| S2 | An answer with citations, the citation row visible | F0 cited sources |
+| S3 | An answer without citations, the general knowledge notice visible | F0 general knowledge notice |
+| S4 | Import progress plus the import statistics | F0 course material |
+| S5 | The four context-menu entries (and hidden when nothing is selected) | F0 / F1 entry points |
+| S6 | The unit test input box plus the generated JUnit class | F1-1 |
+| S7 | The practice exercise dialog output | F1-3 |
+| S8 | The commit message dialog | F1-2 |
+| S9 | Streaming in progress with the `Searching course material…` status | F0 streaming |
+| S10 | Message actions: code block `Copy` / `Insert`, whole-answer `Copy` / `Regenerate` | F0 message actions |
+| S11 | Selected code chip plus the multi-line input (Shift+Enter) | F0 context |
 
-`S5` 建议拍两张：选中代码时、未选中时，用来证明 `update()` 的置灰逻辑。
+For `S5`, take two shots: one with code selected and one without, to prove the greying logic in `update()`.
 
-## 5. 已知限制
+## 5. Known limitations
 
-- **无跨请求上下文**：多次提问互相独立；历史只在本机展示，不会作为上下文再次发给模型。
-- **流式依赖网关**：网关不接受 `stream: true` 时用 `MENTORJ_LLM_STREAM=false` 回退；
-  工具轮次中已出现的文字会被丢弃，只保留最终回答。
-- **不做生成逻辑**：出题、写测试、写提交消息全部由 agent 组完成，界面只负责采集输入与呈现结果。
-- **Git 消息依赖命令行 git**：不引入 Git4Idea 依赖，以换取插件不与 Git 插件版本耦合。
-- **仅 PDF 可导入**：其他格式进失败清单，不静默丢弃。
+- **No cross-request context**: questions are independent of each other; the history is displayed locally only and never sent to the model as context again.
+- **Streaming depends on the gateway**: when a gateway rejects `stream: true`, fall back with `MENTORJ_LLM_STREAM=false`;
+  text already shown during a tool round is discarded, keeping only the final answer.
+- **No generation logic here**: exercises, tests and commit messages are all produced by the agent team; the UI only collects input and presents results.
+- **Commit messages depend on the git command line**: Git4Idea is not a dependency, in exchange for the plugin not being coupled to a Git plugin version.
+- **Only PDFs can be imported**: other formats land in the failure list instead of being dropped silently.

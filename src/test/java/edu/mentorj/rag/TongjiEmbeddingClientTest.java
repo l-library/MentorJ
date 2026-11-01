@@ -10,15 +10,18 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 /**
- * 真实端点的连通性检查：读环境变量里的 key，没配置时跳过（CI 里不会失败）。
+ * Connectivity check against the real endpoint: it reads the key from the environment and skips when none is
+ * configured, so CI never fails on it.
  *
- * <p>只断言与协议相关的性质（条数、维度、归一化），不断言具体数值，避免测试跟着模型更新而变红。
+ * <p>It asserts only protocol-related properties (count, dimension, normalization), never specific values, so
+ * the test does not go red when the model is updated.
  */
 public class TongjiEmbeddingClientTest {
 
     private static TongjiEmbeddingClient clientOrSkip() {
         TongjiEmbeddingClient client = TongjiEmbeddingClient.fromEnvironment();
-        assumeTrue("未配置 " + TongjiEmbeddingClient.API_KEY_ENV + "，跳过真实端点测试", client != null);
+        assumeTrue("" + TongjiEmbeddingClient.API_KEY_ENV + " is not configured, skipping the real endpoint test",
+                client != null);
         return client;
     }
 
@@ -35,7 +38,7 @@ public class TongjiEmbeddingClientTest {
             for (float value : vector) {
                 norm += value * value;
             }
-            assertEquals("返回向量应已归一化", 1.0, Math.sqrt(norm), 1e-3);
+            assertEquals("returned vectors must already be normalized", 1.0, Math.sqrt(norm), 1e-3);
         }
     }
 
@@ -75,7 +78,7 @@ public class TongjiEmbeddingClientTest {
     public void malformedResponsesAreReported() {
         try {
             TongjiEmbeddingClient.parse("{\"error\":\"quota\"}");
-            assertTrue("缺少 data 必须报错", false);
+            assertTrue("a missing data array must fail", false);
         } catch (IOException e) {
             assertTrue(e.getMessage(), e.getMessage().contains("data"));
         }

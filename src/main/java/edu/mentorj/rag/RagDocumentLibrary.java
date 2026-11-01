@@ -11,13 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@link DocumentLibrary} 的实现：解析 → 切块 → 交给知识库建索引。
+ * {@link DocumentLibrary} implementation: parse -> chunk -> hand the chunks to the knowledge base to index.
  *
- * <p>导入是**全量重建**，不做增量：课程材料只有两百多页，重建比维护增量状态便宜，也不会出现
- * “索引里有旧版本页面”这种查起来很痛苦的状态。
+ * <p>Import is a **full rebuild**, never incremental: the course material is only a couple of hundred
+ * pages, so rebuilding costs less than maintaining incremental state and never leaves the index holding
+ * stale pages, a state that is painful to debug.
  *
- * <p>单个文件的失败只记进 {@link ImportResult#failures()}，不中断整批：十个课件里有一个加密的
- * PDF，不该让另外九个也导不进来。
+ * <p>A single file's failure is only recorded in {@link ImportResult#failures()} and does not abort the
+ * batch: one encrypted PDF among ten decks must not keep the other nine from importing.
  */
 public final class RagDocumentLibrary implements DocumentLibrary {
 

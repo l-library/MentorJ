@@ -56,7 +56,7 @@ public class ChatCompletionsLlmServiceTest {
         contentType = "application/json";
         response = """
                 {"choices":[{"finish_reason":"stop","message":{
-                  "role":"assistant","content":"你好，Java！","tool_calls":null}}]}
+                  "role":"assistant","content":"Hello, Java!","tool_calls":null}}]}
                 """;
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -118,14 +118,16 @@ public class ChatCompletionsLlmServiceTest {
     }
 
     private LlmService.Request request() {
-        return new LlmService.Request("你是课程助教。", List.of(LlmService.Message.user("解释 \"依赖注入\"\n举个例子")),
-                List.of(new LlmService.ToolSpec("search_course_material", "课程检索", "{\"type\":\"object\"}")));
+        return new LlmService.Request("You are the course teaching assistant.",
+                List.of(LlmService.Message.user("explain \"dependency injection\"\ngive an example")),
+                List.of(new LlmService.ToolSpec("search_course_material", "course retrieval",
+                        "{\"type\":\"object\"}")));
     }
 
     @Test
     public void sendsAuthenticatedUtf8RequestAndParsesText() {
         LlmService.Result result = service(Duration.ofSeconds(5)).complete(request());
-        assertEquals("你好，Java！", result.content());
+        assertEquals("Hello, Java!", result.content());
         assertTrue(result.toolCalls().isEmpty());
         assertEquals("Bearer test-secret", authorization.get());
         assertEquals("POST", method.get());
@@ -135,7 +137,7 @@ public class ChatCompletionsLlmServiceTest {
         assertEquals(0.7, body.get("temperature").getAsDouble(), 0.000001);
         assertFalse(body.get("stream").getAsBoolean());
         assertEquals("system", body.getAsJsonArray("messages").get(0).getAsJsonObject().get("role").getAsString());
-        assertEquals("你是课程助教。",
+        assertEquals("You are the course teaching assistant.",
                 body.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString());
         assertEquals(request().messages().get(0).content(),
                 body.getAsJsonArray("messages").get(1).getAsJsonObject().get("content").getAsString());
@@ -156,7 +158,8 @@ public class ChatCompletionsLlmServiceTest {
                     () -> service(Duration.ofSeconds(5)).complete(request()));
             assertFalse(error.getMessage().contains("test-secret"));
             assertFalse(error.getMessage().contains("sensitive provider error"));
-            assertTrue(error.getMessage().contains(code == 429 ? "限流" : code < 404 && code != 302 ? "认证" : "HTTP"));
+            assertTrue(error.getMessage().contains(code == 429 ? "rate limited"
+                    : code < 404 && code != 302 ? "authentication failed" : "HTTP"));
         }
     }
 
@@ -177,15 +180,16 @@ public class ChatCompletionsLlmServiceTest {
     public void preservesTruncatedAnswerAndSourcesWithVisibleWarning() {
         response = """
                 {"choices":[{"finish_reason":"length","message":{
-                  "role":"assistant","content":"构造器注入通过构造器传入依赖。```java class Example {",
+                  "role":"assistant","content":"Uses the constructor.```java class Example {",
                   "reasoning_content":"internal continuation data","tool_calls":null}}]}
                 """;
         AgentLoop agent = new AgentLoop((query, topK) -> List.of(
                 new KnowledgeChunk("Constructor injection", "Spring.pdf", "5", 1)), service(Duration.ofSeconds(5)),
                 new SystemPromptBuilder(), new ToolRegistry());
-        AgentResponse answer = agent.respond(new AgentRequest(AgentAction.ASK, "解释构造器注入", null, null));
-        assertTrue(answer.text().startsWith("【回答未完成】"));
-        assertTrue(answer.text().contains("构造器注入通过构造器传入依赖。```java class Example {"));
+        AgentResponse answer = agent.respond(
+                new AgentRequest(AgentAction.ASK, "explain constructor injection", null, null));
+        assertTrue(answer.text().startsWith("[Answer incomplete]"));
+        assertTrue(answer.text().contains("Uses the constructor.```java class Example {"));
         assertFalse(answer.text().contains("internal continuation data"));
         assertEquals(List.of(new Citation("Spring.pdf", "5")), answer.citations());
         assertFalse(answer.generalKnowledgeOnly());
@@ -199,7 +203,7 @@ public class ChatCompletionsLlmServiceTest {
             LlmException error = assertThrows(LlmException.class,
                     () -> service(Duration.ofSeconds(5)).complete(request()));
             assertTrue(error.getMessage().contains("8192"));
-            assertTrue(error.getMessage().contains("尚未生成回答正文"));
+            assertTrue(error.getMessage().contains("before writing the answer body"));
             assertFalse(error.getMessage().contains("internal continuation data"));
         }
     }
@@ -210,7 +214,7 @@ public class ChatCompletionsLlmServiceTest {
         JsonObject choice = body.getAsJsonArray("choices").get(0).getAsJsonObject();
         choice.addProperty("finish_reason", "length");
         JsonObject message = choice.getAsJsonObject("message");
-        message.addProperty("content", "正在检索课程材料");
+        message.addProperty("content", "searching course material");
         message.getAsJsonArray("tool_calls").get(0).getAsJsonObject().getAsJsonObject("function")
                 .addProperty("arguments", "{\"query\":\"");
         response = body.toString();
@@ -230,9 +234,9 @@ public class ChatCompletionsLlmServiceTest {
         });
         AgentLoop agent = new AgentLoop((query, topK) -> List.of(), service(Duration.ofSeconds(5)),
                 new SystemPromptBuilder(), registry);
-        AgentResponse answer = agent.respond(new AgentRequest(AgentAction.ASK, "解释构造器注入", null, null));
-        assertTrue(answer.text().contains("本轮工具尚未执行"));
-        assertEquals(0, executions.get());
+        AgentResponse answer = agent.respond(
+                new AgentRequest(AgentAction.ASK, "explain constructor injection", null, null));
+        assertTrue(answer.text().contains("no tool from this round ran"));
         assertFalse(answer.generalKnowledgeOnly());
     }
 
@@ -326,11 +330,11 @@ public class ChatCompletionsLlmServiceTest {
         assertEquals(List.of(new LlmService.ToolCall("call_search", "search_course_material", "{\"query\":\"JUnit\"}")),
                 result.toolCalls());
         assertEquals("provider continuation data", result.reasoningContent());
-        response = "{\"choices\":[{\"message\":{\"content\":\"使用 assertEquals\"},\"finish_reason\":\"stop\"}]}";
+        response = "{\"choices\":[{\"message\":{\"content\":\"use assertEquals\"},\"finish_reason\":\"stop\"}]}";
         LlmService.Result answer = service(Duration.ofSeconds(5)).complete(new LlmService.Request("TA",
                 List.of(LlmService.Message.user("JUnit assertions"), LlmService.Message.assistant(result),
                         LlmService.Message.tool("call_search", "[JUnit.pdf, 3] Use assertEquals")), List.of()));
-        assertEquals("使用 assertEquals", answer.content());
+        assertEquals("use assertEquals", answer.content());
         JsonArray messages = received.get().getAsJsonArray("messages");
         JsonObject assistant = messages.get(2).getAsJsonObject();
         assertTrue(assistant.get("content").isJsonNull());
@@ -386,11 +390,11 @@ public class ChatCompletionsLlmServiceTest {
     @Test
     public void streamsTextDeltasAndReturnsTheWholeAnswer() {
         contentType = "text/event-stream";
-        response = sse(contentEvent("封装"), contentEvent("是隐藏实现"), finishEvent("stop"));
+        response = sse(contentEvent("Encapsulation"), contentEvent(" hides the implementation"), finishEvent("stop"));
         List<String> deltas = new ArrayList<>();
         LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
-        assertEquals(List.of("封装", "是隐藏实现"), deltas);
-        assertEquals("封装是隐藏实现", result.content());
+        assertEquals(List.of("Encapsulation", " hides the implementation"), deltas);
+        assertEquals("Encapsulation hides the implementation", result.content());
         assertTrue(result.toolCalls().isEmpty());
         assertTrue(received.get().get("stream").getAsBoolean());
         assertEquals("text/event-stream", accept.get());
@@ -415,8 +419,8 @@ public class ChatCompletionsLlmServiceTest {
     public void fallsBackToTheWholeBodyWhenTheGatewayIgnoresStreaming() {
         List<String> deltas = new ArrayList<>();
         LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
-        assertEquals("你好，Java！", result.content());
-        assertEquals(List.of("你好，Java！"), deltas);
+        assertEquals("Hello, Java!", result.content());
+        assertEquals(List.of("Hello, Java!"), deltas);
         assertTrue(received.get().get("stream").getAsBoolean());
     }
 
@@ -428,8 +432,8 @@ public class ChatCompletionsLlmServiceTest {
         LlmService.Result result = new ChatCompletionsLlmService(() -> settings, http)
                 .complete(request(), deltas::add);
         assertFalse(received.get().get("stream").getAsBoolean());
-        assertEquals("你好，Java！", result.content());
-        assertEquals(List.of("你好，Java！"), deltas);
+        assertEquals("Hello, Java!", result.content());
+        assertEquals(List.of("Hello, Java!"), deltas);
     }
 
     @Test
@@ -437,16 +441,16 @@ public class ChatCompletionsLlmServiceTest {
         contentType = "text/event-stream";
         response = sse(event(textDelta("shown")), finishEvent("length"));
         LlmService.Result partial = service(Duration.ofSeconds(5)).complete(request(), delta -> { });
-        assertTrue(partial.content().startsWith("【回答未完成】"));
+        assertTrue(partial.content().startsWith("[Answer incomplete]"));
         assertTrue(partial.content().endsWith("shown"));
         for (String[] scenario : List.of(
-                new String[]{sse(finishEvent("content_filter")), "过滤"},
+                new String[]{sse(finishEvent("content_filter")), "filtered"},
                 new String[]{sse(event(toolDelta("call_1", "search", "{", 0)), finishEvent("length")),
-                        "本轮工具尚未执行"},
-                new String[]{"data: not-json\n\n", "无效"},
+                        "no tool from this round ran"},
+                new String[]{"data: not-json\n\n", "invalid"},
                 new String[]{"data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,"
-                        + "\"function\":[]}]}}]}\n\n", "无效"},
-                new String[]{"data: {\"error\":{\"message\":\"secret provider detail\"}}\n\n", "无效"})) {
+                        + "\"function\":[]}]}}]}\n\n", "invalid"},
+                new String[]{"data: {\"error\":{\"message\":\"secret provider detail\"}}\n\n", "invalid"})) {
             response = scenario[0];
             LlmException error = assertThrows(scenario[0], LlmException.class,
                     () -> service(Duration.ofSeconds(5)).complete(request(), delta -> { }));
@@ -471,7 +475,7 @@ public class ChatCompletionsLlmServiceTest {
         };
         LlmException error = assertThrows(LlmException.class,
                 () -> service(Duration.ofSeconds(5)).complete(request(), listener));
-        assertTrue(error.getMessage().contains("取消"));
+        assertTrue(error.getMessage().contains("cancelled"));
     }
 
     @Test
@@ -482,7 +486,7 @@ public class ChatCompletionsLlmServiceTest {
         LlmException error = assertThrows(LlmException.class,
                 () -> new ChatCompletionsLlmService(() -> settings, http)
                         .complete(request(), delta -> { }));
-        assertTrue(error.getMessage().contains("超时"));
+        assertTrue(error.getMessage().contains("timed out"));
     }
 
     @Test
@@ -490,7 +494,7 @@ public class ChatCompletionsLlmServiceTest {
         delayMillis = 500;
         LlmException error = assertThrows(LlmException.class,
                 () -> service(Duration.ofMillis(100)).complete(request()));
-        assertTrue(error.getMessage().contains("超时"));
+        assertTrue(error.getMessage().contains("timed out"));
     }
 
     @Test

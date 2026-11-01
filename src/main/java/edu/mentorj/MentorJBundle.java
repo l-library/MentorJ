@@ -4,7 +4,7 @@ import com.intellij.DynamicBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.PropertyKey;
 
-/** UI 文案统一从 messages/MentorJBundle.properties 读取。 */
+/** All UI text is read from messages/MentorJBundle.properties. */
 public final class MentorJBundle extends DynamicBundle {
 
     public static final String BUNDLE = "messages.MentorJBundle";

@@ -8,7 +8,7 @@ import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import org.jetbrains.annotations.NotNull;
 
-/** 侧边栏 tool window：MentorJ 助教的主界面，内容由 {@link MentorJChatPanel} 提供。 */
+/** Sidebar tool window: the main MentorJ teaching assistant view, whose content {@link MentorJChatPanel} provides. */
 public final class MentorJToolWindowFactory implements ToolWindowFactory, DumbAware {
 
     @Override

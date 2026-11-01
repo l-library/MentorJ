@@ -7,8 +7,8 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * 测试用的向量化实现：向量完全由构造时给的函数决定，因此“语义排名”这件事可以被精确断言，
- * 而不必依赖模型的实际行为。
+ * Embedding implementation for tests: the vectors come entirely from the function given at construction, so
+ * "semantic ranking" can be asserted precisely without depending on what the model actually does.
  */
 final class FakeEmbeddingProvider implements EmbeddingProvider {
 
@@ -24,7 +24,7 @@ final class FakeEmbeddingProvider implements EmbeddingProvider {
         this.vectorOf = vectorOf;
     }
 
-    /** 关键词命中的文本返回 {@code hit}，其余返回 {@code miss}。 */
+    /** Text containing a keyword returns {@code hit}, everything else returns {@code miss}. */
     static FakeEmbeddingProvider matching(Map<String, float[]> vectors, float[] fallback) {
         return new FakeEmbeddingProvider(fallback.length, text -> {
             for (Map.Entry<String, float[]> entry : vectors.entrySet()) {
@@ -36,13 +36,13 @@ final class FakeEmbeddingProvider implements EmbeddingProvider {
         });
     }
 
-    /** 导入时的批量调用失败。 */
+    /** The batch call during import fails. */
     FakeEmbeddingProvider failingWith(IOException failure) {
         this.failure = failure;
         return this;
     }
 
-    /** 提问时的单条调用失败，导入仍然成功（索引里有向量）。 */
+    /** The single call during a question fails, while the import still succeeds (the index holds vectors). */
     FakeEmbeddingProvider failingQueriesWith(IOException failure) {
         this.queryFailure = failure;
         return this;

@@ -2,101 +2,102 @@
 
 > An IntelliJ IDEA plugin that serves as a teaching assistant (TA) of the Java Enterprise Application Development course.
 
-MentorJ 是《Java 企业级应用开发》课程的助教插件，运行在 IntelliJ IDEA 里，面向大学中的 Java 学习者。它以侧边栏 AI Agent 的形式常驻 IDE，提供课程答疑与编程辅助。项目目前处于早期开发阶段。
+MentorJ is a teaching assistant plugin for the Java Enterprise Application Development course. It runs inside IntelliJ IDEA and is built for university students learning Java. It lives in the IDE as a sidebar AI agent that answers course questions and helps with programming. The project is still in early development.
 
-## 功能
+## Features
 
-- 交互界面内嵌于 IntelliJ IDEA（侧边栏 / tool window）：侧边栏 AI Agent 身份是“助教”，以课程专属问答聊天机器人的形式与学习者对话。
-  回答以消息卡片展示并逐字输出，支持 Markdown、代码块高亮与复制/插入、停止生成、重新生成，
-  选中代码可随问题附带，问答历史在项目内恢复。
-- RAG 课程问答，回答标注来源：
-  - 预处理课程材料（如 PPT），切分成可检索的知识块并建立索引。
-  - 用户提出编程相关问题时，检索知识库中最相关的知识块，与原始问题一起交给 LLM 服务，回答结合通用 Java 知识与课程材料中的具体、可验证信息。
-  - 基于检索材料生成的回答必须标注来源文档与页码/范围；未检索到相关材料、只能凭 LLM 通用知识回答时，须明确说明（如 “Response is based on general knowledge; no specific course material is referenced”）。
-- 上下文感知：读取用户当前的编程上下文；选中代码段后右键，可直接就这段代码提问。
-- 三个智能操作：
-  - 按需求生成单元测试：对选中的 Java 类或方法，先弹出文本输入框，让用户以自然语言描述要测试的场景或需求（如“测试用户 ID 不存在的情况”），再结合上下文源代码调用 LLM，生成针对该场景的 JUnit 测试类。
-  - Git 提交消息生成：读取所有 staged 文件的改动（类似 git diff）作为上下文交给 LLM，分析改动的语义意图（修 bug、新功能实现、重构等），按 Conventional Commits 规范生成结构化的提交消息并展示给用户。
-  - 创意智能操作（生成练习题）：围绕选中的代码列出涉及的课程知识点，再由易到难出 3 道题并给出参考答案，用于课后自测。输入框可留空，留空时由助教根据代码自行设计题型与难度；也可指定“只出改错题”“难度偏高”等要求。
+- The conversation UI is embedded in IntelliJ IDEA (sidebar / tool window): the sidebar AI agent plays a "teaching assistant", talking to learners as a course-specific Q&A chatbot.
+  Answers appear as message cards and stream in character by character, with Markdown, highlighted code blocks, and copy/insert actions, plus stop and regenerate. Selected code can be attached to a question, and the history is restored per project.
+- RAG course Q&A with cited sources:
+  - Course material (slides, for example) is preprocessed into retrievable chunks and indexed.
+  - When a user asks a programming-related question, the most relevant chunks are retrieved and sent to the LLM service together with the original question, so the answer combines general Java knowledge with concrete, verifiable information from the course material.
+  - An answer built on retrieved material must cite the source document and page/range. When no relevant material was retrieved and the answer can only rest on the LLM's general knowledge, the answer must say so explicitly (for example, "Response is based on general knowledge; no specific course material is referenced").
+- Context awareness: it reads the user's current programming context; after selecting a code fragment, a context-menu action asks about that code directly.
+- Three intelligent actions:
+  - Generate a unit test from a requirement: for the selected Java class or method, a text input first asks the user to describe the scenario or requirement in natural language (such as "test that the user ID does not exist"), then the context source is sent to the LLM to generate a JUnit test class for that scenario.
+  - Generate a Git commit message: the staged changes of all files (similar to git diff) are read and handed to the LLM as context, which analyzes what the change means to do (bug fix, new feature, refactor, and so on) and produces a structured commit message following Conventional Commits, shown to the user.
+  - Creative intelligent action (generate practice exercises): list the course concepts the selected code involves, then write 3 exercises of increasing difficulty with reference answers, for self-testing after class. The input box may stay empty, in which case the assistant designs the exercise types and difficulty from the code; requirements such as "only bug-finding exercises" or "harder difficulty" are also accepted.
 
-## 开发
+## Development
 
-构建目标为 IntelliJ IDEA 2025.3.6.1，需要 JDK 21（Gradle toolchain 自动下载，无需手动安装）。常用命令：
+The build targets IntelliJ IDEA 2025.3.6.1 and needs JDK 21 (the Gradle toolchain downloads it, so no manual install). Common commands:
 
 ```bash
-./gradlew build   # 编译并打包插件
-./gradlew runIde  # 启动加载了本插件的沙箱 IDE
-./gradlew check   # 运行测试
+./gradlew build   # compile and package the plugin
+./gradlew runIde  # start a sandbox IDE with this plugin loaded
+./gradlew check   # run the tests
 ```
 
-## LLM 接入（同济 AI 服务平台）
+## LLM access (Tongji AI service platform)
 
-插件通过同济平台的 Chat Completions 接口进行流式生成，Agent 可在生成过程中调用课程检索工具。
-已根据平台调用示例设置默认地址和模型，运行前只需配置 `MENTORJ_LLM_API_KEY`。
+The plugin streams generations through the Tongji platform's Chat Completions API, and the agent can call the course retrieval tool while generating.
+The default URL and model are set from the platform's example, so only `MENTORJ_LLM_API_KEY` is needed before running.
 
-| 变量 | 内容 |
+| Variable | Meaning |
 | --- | --- |
-| `MENTORJ_LLM_API_KEY` | 必填，同济平台签发的 API Key |
-| `MENTORJ_LLM_BASE_URL` | 可选，默认 `https://agi.tongji.edu.cn/v1` |
-| `MENTORJ_LLM_MODEL` | 可选，默认 `DeepSeek-V4.1-Flash` |
-| `MENTORJ_LLM_TIMEOUT_SECONDS` | 可选，请求超时或流式空闲超时秒数，默认 90，范围 1–600 |
-| `MENTORJ_LLM_MAX_TOKENS` | 可选，每次响应输出上限，默认 8192；插件接受 1–32768，实际须符合所选模型限制 |
-| `MENTORJ_LLM_STREAM` | 可选，`true`（默认）流式返回，`false` 回退到一次性返回；网关不兼容流式时使用 |
+| `MENTORJ_LLM_API_KEY` | Required; the API key issued by the Tongji platform |
+| `MENTORJ_LLM_BASE_URL` | Optional; defaults to `https://agi.tongji.edu.cn/v1` |
+| `MENTORJ_LLM_MODEL` | Optional; defaults to `DeepSeek-V4.1-Flash` |
+| `MENTORJ_LLM_TIMEOUT_SECONDS` | Optional; request timeout or streaming idle timeout in seconds, default 90, range 1-600 |
+| `MENTORJ_LLM_MAX_TOKENS` | Optional; output limit per response, default 8192; the plugin accepts 1-32768 and the value must satisfy the selected model's limit |
+| `MENTORJ_LLM_STREAM` | Optional; `true` (default) streams the response, `false` falls back to a single response; use it when a gateway cannot handle streaming |
 
-默认请求地址为 `https://agi.tongji.edu.cn/v1/chat/completions`，通过
-`Authorization: Bearer <API Key>` 认证。请求使用 `max_tokens: 8192`、
-`temperature: 0.7`、`stream: true`，按 SSE 解析 `delta.content` 与分片的流式工具调用；
-服务端忽略 `stream` 返回整段 JSON 时自动回退到一次性解析。
-流式请求不设置整体超时，改用“无新数据即超时”的空闲看门狗，避免长回答被截断。
-输出额度从平台示例中的 1000 提高到 8192，
-为课程解释与代码示例留出空间；这是最大额度，并不要求模型用完。
-如果回答仍被截断，已有正文会保留，并在开头明确标注“回答未完成”；生成的代码可能不完整。
-只有推理内容、没有回答正文时会提示当前额度，且不展示推理内容；被截断的工具调用不会执行。
-Base URL 和模型可通过上述环境变量覆盖；不填写时使用默认值，显式配置为空时会提示错误。
-代码会给 Base URL 追加 `/chat/completions`，也支持直接填写完整的 Chat Completions 地址。
-远程服务须使用 HTTPS，本机服务可使用 HTTP。
+The default request URL is `https://agi.tongji.edu.cn/v1/chat/completions`, authenticated with
+`Authorization: Bearer <API key>`. Requests use `max_tokens: 8192`,
+`temperature: 0.7`, `stream: true`, and parse `delta.content` and fragmented streaming tool calls
+from SSE; when the server ignores `stream` and returns one JSON body, parsing falls back automatically.
+Streaming requests set no overall timeout but use an idle watchdog that fires when no new data arrives,
+so long answers are not cut off.
+The output budget is raised from the 1000 in the platform example to 8192,
+which leaves room for course explanations and code samples; it is a maximum, not a target the model must use.
+If an answer is still truncated, the text already received is kept and prefixed with an explicit
+"Answer incomplete" notice; generated code may be incomplete.
+Reasoning-only output reports the current budget and never shows the reasoning; truncated tool calls are not executed.
+The base URL and model can be overridden with the environment variables above; unset means the default, while an explicitly empty value reports an error.
+The code appends `/chat/completions` to the base URL and also accepts a full Chat Completions address.
+Remote services must use HTTPS; a local service may use HTTP.
 
-在 IntelliJ 的 **Run IDE with Plugin** 运行配置中设置环境变量，然后启动沙箱 IDE。
-使用终端时，在同一终端设置变量后执行 `./gradlew --no-daemon runIde`。
-API Key 只保存在本机运行配置或环境变量中；不要写入源码或共享的 `.run` 文件。
-项目不会自动加载 `.env` 文件。更改环境变量后需重新启动沙箱 IDE。
-如果此前显式设置了 `MENTORJ_LLM_MAX_TOKENS=1000`，请删除该配置以使用新默认值，
-或改为 `8192`；显式设置优先于默认值。已运行的旧插件也需重新构建并重启沙箱后验证。
+Set the environment variables in IntelliJ's **Run IDE with Plugin** run configuration, then start the sandbox IDE.
+From a terminal, set the variables in that terminal and run `./gradlew --no-daemon runIde`.
+The API key lives only in local run configurations or environment variables; never write it into the source or a shared `.run` file.
+The project does not load `.env` files automatically. Restart the sandbox IDE after changing an environment variable.
+If you previously set `MENTORJ_LLM_MAX_TOKENS=1000` explicitly, remove it to pick up the new default,
+or set it to `8192`; an explicit value wins over the default. An already running older plugin also needs a rebuild and a sandbox restart before verification.
 
-实现使用 JDK HTTP 客户端和平台已有的 Gson，未添加依赖。未配置、认证失败、限流、
-超时、网络错误、无效响应或截断回答会在现有回答区域显示说明；不会显示原始错误响应或密钥。
-请求不自动重试，避免重复计费。成功响应继续保留课程引用和通用知识声明。
+The implementation uses the JDK HTTP client and the Gson the platform already provides, with no added dependency. Missing configuration, authentication failures, rate limits,
+timeouts, network errors, invalid responses and truncated answers are reported in the answer area; raw error responses and the key are never shown.
+Requests are not retried automatically, to avoid double billing. Successful responses keep their course citations and general knowledge notice.
 
-Agent 核心已实现：
+The agent core is implemented:
 
-- `ASK`：初次检索后，结合问题、文件源码和选中代码生成回答；模型可追加检索。
-- `GENERATE_UNIT_TEST`：要求测试场景和源码，按实际方法签名生成 JUnit 测试；
-  优先匹配指定版本，未指定时默认 JUnit 4。生成结果仍需在目标项目编译、运行。
-- `GENERATE_COMMIT_MESSAGE`：要求非空 staged diff，仅按暂存改动和用户附加要求生成英文 Conventional Commit。
-  不检索课程材料，不执行 Git 操作。
-- 工具循环：发送 `tools`、保留 assistant `tool_calls`、用 `tool_call_id` 回填结果，
-  最多执行 3 轮工具、每轮 8 次，最多请求模型 4 次；最后一轮关闭工具并要求完成回答。
-- 来源汇总：初次检索及工具追加检索的结构化来源统一去重，保留文档和页码；
-  未检索到课程材料时保留通用知识标志，调用错误不冒充无检索结果。
-- 参数校验、未知工具和工具失败反馈、取消请求、超长输入与上下文限制；
-  单次用户上下文最多 60,000 字符，累计对话最多 120,000 字符，工具输出最多 20,000 字符。
-  每次请求独立处理，不把上一轮对话发给模型；侧边栏只在本机保留展示历史（`.idea/mentorj-chat.json`）。
+- `ASK`: retrieves once, then answers from the question, the file source and the selected code; the model may retrieve again.
+- `GENERATE_UNIT_TEST`: requires a test scenario and source, then generates a JUnit test against the real method signatures;
+  a requested version wins, and JUnit 4 is the default. The result still has to be compiled and run in the target project.
+- `GENERATE_COMMIT_MESSAGE`: requires a non-empty staged diff and writes an English Conventional Commit from the staged changes and the user's extra requirements only.
+  It retrieves no course material and performs no Git operation.
+- Tool loop: sends `tools`, keeps the assistant `tool_calls`, and fills results back with `tool_call_id`,
+  running at most 3 tool rounds with 8 calls each and at most 4 model requests; the last round disables tools and asks for the final answer.
+- Source aggregation: structured sources from the initial retrieval and from tool retrievals are deduplicated while keeping document and page;
+  when no course material was retrieved the general knowledge flag stays set, and a call error never masquerades as an empty retrieval.
+- Parameter validation, unknown-tool and tool-failure feedback, request cancellation, and input and context limits;
+  a single user context is capped at 60,000 characters, the accumulated conversation at 120,000, and tool output at 20,000.
+  Each request is handled independently and the previous turn is not sent to the model; the sidebar keeps its display history locally only (`.idea/mentorj-chat.json`).
 
-原生工具协议支持本地模拟服务验证；同济网关和 `DeepSeek-V4.1-Flash` 的工具调用能力
-仍须使用真实 Key 联调，文本调用示例不代表网关一定支持工具。适配器保留服务返回的
-`reasoning_content` 供后续工具轮次回填，不展示该字段，参见
-[DeepSeek 工具调用协议](https://api-docs.deepseek.com/guides/thinking_mode/#tool-calls)。
-共享接口扩展保留了旧构造器和字符串工具方法，变更说明及三方联调评审项见 [API.md](API.md)。
+The native tool protocol is verified against a local mock service; the Tongji gateway's tool-calling support for
+`DeepSeek-V4.1-Flash` still needs a joint test with a real key, since a text example does not prove that a gateway supports tools. The adapter keeps the service's
+`reasoning_content` for the following tool round without displaying it; see
+[DeepSeek tool calling](https://api-docs.deepseek.com/guides/thinking_mode/#tool-calls).
+The shared interface extension keeps the old constructors and string tool methods; see [API.md](API.md) for the change notes and the joint-review items.
 
-界面部分已接线完成：侧边栏以消息卡片流式展示回答，可以提问、导入课程材料、查看引用来源、
-复制/重新生成回答、复制或插入代码块，并恢复本机历史；编辑器右键可以就选中代码提问、
-生成 JUnit 测试和生成练习题，Tools 菜单可以生成提交消息。四个入口共用同一条后台执行、
-流式增量与取消路径，结果统一展示正文、引用来源与通用知识声明。
+The UI is fully wired: the sidebar streams answers as message cards, and a user can ask questions, import course material, inspect cited sources,
+copy or regenerate answers, copy or insert code blocks, and restore the local history; the editor context menu asks about the selected code and
+generates JUnit tests or practice exercises, and the Tools menu generates a commit message. All four entry points share one background execution
+path with streaming increments and cancellation, and results uniformly show the body, the cited sources and the general knowledge notice.
 
-验证方法：执行 `./gradlew check build`，测试会使用本机模拟 HTTP 服务，不调用同济平台或消耗额度。
-测试覆盖文本生成、工具协议往返、循环上限、引用去重、请求隔离、参数和错误处理。
-配置真实 Key 后，在沙箱侧边栏提问“解释 Java 的依赖注入”，确认返回模型回答；
-RAG 接入材料后再验证追加检索与引用。本地自动测试不代表真实平台联调已经完成。
-RAG 已接入课程材料索引：导入材料后回答会带页码引用，未命中时显示通用知识声明。
+How to verify: run `./gradlew check build`. The tests use a local mock HTTP service and never call the Tongji platform or consume quota.
+They cover text generation, tool protocol round trips, the loop limits, citation deduplication, request isolation, parameter and error handling.
+With a real key configured, ask "explain Java dependency injection" in the sandbox sidebar and confirm a model answer comes back;
+verify extra retrieval and citations once RAG has material loaded. Passing local tests does not mean the real platform integration is done.
+RAG is wired to the course material index: after importing material, answers carry page citations, and a miss shows the general knowledge notice.
 
-目录结构、开发环境、Git 协作与编码约定见 [CONVENTION.md](CONVENTION.md)，三个小组的模块协作接口约定见 [API.md](API.md)。
+For layout, development environment, Git workflow and coding conventions see [AGENTS.md](AGENTS.md) (English) or its Chinese original [CONVENTION.md](CONVENTION.md); for the module contract between the three teams see [API.md](API.md).

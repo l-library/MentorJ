@@ -49,10 +49,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 侧边栏主界面：课程材料入口 + 消息卡片 + 输入区。
+ * Sidebar main view: course material entry point + message cards + input area.
  *
- * <p>每次提问独立处理（不保留跨请求上下文），界面只维护本机的展示历史，并在项目内持久化。
- * 请求在后台线程执行，增量由 {@link AgentRequests} 合并后回到 EDT。
+ * <p>Each question is handled independently (no context carries across requests); the view keeps only the local
+ * display history and persists it per project. Requests run on a background thread, and {@link AgentRequests}
+ * merges the increments back onto the EDT.
  */
 final class MentorJChatPanel extends JPanel implements Disposable {
 

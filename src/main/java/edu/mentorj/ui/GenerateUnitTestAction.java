@@ -14,7 +14,7 @@ import edu.mentorj.api.AgentRequest;
 import edu.mentorj.api.EditorContext;
 import org.jetbrains.annotations.NotNull;
 
-/** 编辑器右键：按自然语言需求为选中的类 / 方法生成 JUnit 测试。 */
+/** Editor context menu: generate a JUnit test for the selected class / method from a natural-language requirement. */
 public final class GenerateUnitTestAction extends AnAction implements DumbAware {
 
     @Override
@@ -42,7 +42,7 @@ public final class GenerateUnitTestAction extends AnAction implements DumbAware 
             Messages.showInfoMessage(project, MentorJBundle.message("test.noCode"), title);
             return;
         }
-        // 作业要求先让用户用自然语言描述要测试的场景，再结合选中的代码生成测试。
+        // The assignment wants a natural-language scenario from the user first, then a test on the selected code.
         String scenario = Messages.showMultilineInputDialog(project, MentorJBundle.message("test.prompt"),
                 title, null, Messages.getQuestionIcon(), null);
         if (scenario == null) {

@@ -16,14 +16,16 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 /**
- * 组装点的接线验证：项目级 service 能否拿到 Project、索引是否落在 .idea、导入后检索能否给出
- * 带页码的课程材料。
+ * Wiring verification for the assembly point: the project-level service gets the Project, the index lands in
+ * .idea, and retrieval after an import returns course material with page numbers.
  *
- * <p>这是唯一能证明“平台注入 Project 构造参数”确实成立的检查，纯 JUnit 覆盖不到。
+ * <p>This is the only check proving that the platform really injects the Project constructor parameter, since
+ * plain JUnit cannot cover it.
  *
- * <p>这里刻意**不**经过 {@code agentService()}：回答正文依赖外部 LLM，没配 key 时按设计返回
- * 错误说明且不带引用，断言它只会把测试绑在某个供应商是否可达上。引用如何从检索结果汇总进
- * {@code AgentResponse} 由 agent 组的 {@code AgentLoopTest} 负责。
+ * <p>It deliberately does **not** go through {@code agentService()}: the answer body depends on an external
+ * LLM and, by design, returns an error message without citations when no key is configured, so asserting on
+ * it would bind the test to whether one particular provider is reachable. How citations are aggregated from
+ * retrieval results into {@code AgentResponse} is the agent team's {@code AgentLoopTest}.
  */
 public class MentorJProjectServiceTest extends BasePlatformTestCase {
 
@@ -32,7 +34,7 @@ public class MentorJProjectServiceTest extends BasePlatformTestCase {
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        // 索引落在项目的 .idea 下，会跨测试方法留存，每个用例都从空索引开始。
+        // The index lives under the project's .idea and survives across test methods, so each case starts empty.
         library().clear();
         documentDirectory = Files.createTempDirectory("mentorj-service");
     }
@@ -64,13 +66,14 @@ public class MentorJProjectServiceTest extends BasePlatformTestCase {
     public void testImportMakesRetrievalReturnTheCitedPage() throws IOException {
         ImportResult result = library().importDocuments(List.of(fixture("Lec-3.4-JUnit.pdf")), null);
 
-        // 查询用两页夹具里真实出现的词：覆盖率闸门是按两百多块的真实课件调的，在这个 2 页夹具上
-        // 只会命中 1/3 的查询词，会被判成“没覆盖”。
+        // The query uses words that really appear in the two-page fixture: the coverage gate was tuned against
+        // the full decks of over two hundred chunks, and on this 2-page fixture it would match only 1/3 of the
+        // query terms, which the gate judges as "not covered".
         List<KnowledgeChunk> hits = knowledgeBase().retrieve("counter reset semantics", 5);
 
         assertEquals(2, result.chunks());
         assertEquals(List.of(), result.failures());
-        assertFalse("导入后应当检索到课程材料", hits.isEmpty());
+        assertFalse("course material must be retrievable after an import", hits.isEmpty());
         assertEquals("Lec-3.4-JUnit.pdf", hits.get(0).document());
         assertEquals("p.2", hits.get(0).pageOrScope());
     }

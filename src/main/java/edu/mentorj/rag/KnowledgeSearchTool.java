@@ -10,7 +10,7 @@ import edu.mentorj.api.Tool;
 
 import java.util.List;
 
-/** 检索工具：把知识库检索暴露给 agent 的工具调用循环。 */
+/** Retrieval tool: exposes knowledge base retrieval to the agent's tool call loop. */
 public final class KnowledgeSearchTool implements Tool {
 
     private static final String NAME = "search_course_material";
@@ -26,7 +26,8 @@ public final class KnowledgeSearchTool implements Tool {
     public LlmService.ToolSpec spec() {
         return new LlmService.ToolSpec(
                 NAME,
-                "在课程材料知识库中检索与查询最相关的知识块，返回内容与来源（文档、页码/范围）。",
+                "Search the course material knowledge base for the chunks most relevant to the query, "
+                        + "returning their content and sources (document, page/scope).",
                 "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}");
     }
 
@@ -56,7 +57,8 @@ public final class KnowledgeSearchTool implements Tool {
                 return new ExecutionResult("tool_error: course material has incomplete content or source metadata",
                         List.of());
             }
-            result.append("[%s，页码/范围: %s]\n%s\n\n".formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
+            result.append("[%s, page/scope: %s]\n%s\n\n"
+                    .formatted(chunk.document(), chunk.pageOrScope(), chunk.text()));
         }
         List<Citation> citations = chunks.stream().map(c -> new Citation(c.document(), c.pageOrScope()))
                 .distinct().toList();
