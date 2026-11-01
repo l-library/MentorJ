@@ -22,6 +22,8 @@
 
 ### Changed
 
+- Sources, elapsed time and message actions now sit in a separate strip below each answer instead of inside the card, and the transcript measures rows at their actual width after a resize.
+
 - Replace the LLM placeholder and include file path and full source context in generation requests.
 - Default to Tongji's `DeepSeek-V4.1-Flash` endpoint with configurable generation limits.
 - Fill in the `<vendor>` and `<description>` placeholders in `plugin.xml`.
