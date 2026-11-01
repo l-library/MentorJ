@@ -10,6 +10,7 @@ import com.intellij.util.ui.UIUtil;
 import edu.mentorj.MentorJBundle;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JEditorPane;
@@ -24,6 +25,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -63,7 +65,10 @@ final class MessageCard extends JPanel {
         setOpaque(false);
 
         content.setOpaque(false);
-        content.setBorder(JBUI.Borders.empty(padV, padH));
+        // Not JBUI.Borders: it scales what it is given, and padV/padH are already scaled, so at 150-200% UI the
+        // border took twice the padding measure() accounted for. The body then laid out narrower than it was
+        // measured at, and the extra wrapped line fell outside the card.
+        content.setBorder(BorderFactory.createEmptyBorder(padV, padH, padV, padH));
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         if (showHeader()) {
             JPanel headerPanel = createHeader();
@@ -223,11 +228,15 @@ final class MessageCard extends JPanel {
      * so no stale width can leak into the layout after a resize.
      */
     Dimension measure(int available) {
+        // Read the padding from the border rather than recomputing it from padH: the width the body is measured
+        // at has to be the width it is laid out at, or a wrapped last line ends up outside the card.
+        Insets insets = content.getInsets();
+        int horizontal = insets.left + insets.right;
         int maxWidth = message.role() == ChatMessage.Role.USER
                 ? Math.max(180, (int) (available * 0.82)) : available;
         int cardWidth = message.role() == ChatMessage.Role.USER
-                ? Math.min(maxWidth, Math.max(160, naturalWidth() + 2 * padH)) : maxWidth;
-        int inner = Math.max(100, cardWidth - 2 * padH);
+                ? Math.min(maxWidth, Math.max(160, naturalWidth() + horizontal)) : maxWidth;
+        int inner = Math.max(100, cardWidth - horizontal);
         body.setSize(new Dimension(inner, Short.MAX_VALUE));
         // The body width changed, so BoxLayout's cached size requirements are stale.
         content.invalidate();

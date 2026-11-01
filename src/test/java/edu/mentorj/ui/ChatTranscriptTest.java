@@ -2,6 +2,7 @@ package edu.mentorj.ui;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.testFramework.fixtures.BasePlatformTestCase;
+import com.intellij.ui.scale.JBUIScale;
 import edu.mentorj.api.Citation;
 
 import javax.swing.JEditorPane;
@@ -63,6 +64,32 @@ public class ChatTranscriptTest extends BasePlatformTestCase {
             assertTrue("body bounds after resize " + body.getBounds() + ", pref " + body.getPreferredSize(),
                     body.getHeight() >= body.getPreferredSize().height);
         });
+    }
+
+    /**
+     * At 150-200% UI scale the user bubble used to lose its last line: the card's padding was scaled twice, so the
+     * body was laid out narrower than the width the card measured it at, and the extra wrapped line fell outside
+     * the card height.
+     */
+    public void testUserBubbleKeepsItsLastLineAtHighUiScale() {
+        JBUIScale.setUserScaleFactorForTest(2f);
+        try {
+            ApplicationManager.getApplication().invokeAndWait(() -> {
+                ChatTranscript transcript = new ChatTranscript(
+                        new MarkdownRenderer((code, language) -> List.of(), "Copy"));
+                transcript.setSize(520, 260);
+                ChatMessage question = new ChatMessage(ChatMessage.Role.USER, "How to create a subclass?");
+                transcript.add(question);
+                layoutTwice(transcript);
+
+                JEditorPane body = find(transcript, JEditorPane.class);
+                assertNotNull(body);
+                assertTrue("body bounds " + body.getBounds() + ", body pref " + body.getPreferredSize(),
+                        body.getHeight() >= body.getPreferredSize().height);
+            });
+        } finally {
+            JBUIScale.setUserScaleFactorForTest(1f);
+        }
     }
 
     private static void layoutTwice(Container container) {

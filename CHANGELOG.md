@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- Message cards no longer scale their padding twice at 150-200% UI scale, which laid the text out narrower than it was measured at: a wrapped user question lost its last line ("Why can it have two constructors?" showed only "Why can it have two") even though the restored chat history still held the whole text.
 - Assistant cards no longer clip the end of an answer when the citation footer and action row appear below it.
 - Increase the default output budget from 1000 to 8192 tokens for course explanations and code examples.
 - Preserve partial text with a visible incomplete-answer notice instead of discarding it on length limits;
