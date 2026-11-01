@@ -13,7 +13,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** 语义排名接入融合后的行为：能捞回词法漏掉的块，出问题时退回 BM25。 */
+/**
+ * Behaviour once semantic ranking joins the fusion: it recovers chunks lexical matching misses, and falls back
+ * to BM25 when something breaks.
+ */
 public class SemanticRetrievalTest {
 
     private static final float[] QUERY = {1f, 0f, 0f};
@@ -30,7 +33,7 @@ public class SemanticRetrievalTest {
         return new KnowledgeChunk(text, "deck.pdf", page, 0);
     }
 
-    /** 三块：0 与查询有词面重合，1 只在语义上相关（用词完全不同）。 */
+    /** Three chunks: 0 shares terms with the query, 1 is related only semantically (completely different wording). */
     private static List<KnowledgeChunk> chunks() {
         return List.of(
                 chunk("counter increment assertion", "p.1"),
@@ -55,7 +58,8 @@ public class SemanticRetrievalTest {
 
         assertEquals(1, lexical.size());
         assertEquals("p.1", lexical.get(0).pageOrScope());
-        assertTrue("语义相关块应被捞回", semantic.stream().anyMatch(chunk -> chunk.pageOrScope().equals("p.2")));
+        assertTrue("the semantically related chunk should be recovered",
+                semantic.stream().anyMatch(chunk -> chunk.pageOrScope().equals("p.2")));
     }
 
     @Test
@@ -65,10 +69,11 @@ public class SemanticRetrievalTest {
 
         List<KnowledgeChunk> hits = knowledgeBase.retrieve("counter", 3);
 
-        // p.1 两路都命中，p.2 只有语义命中，所以归一化后 p.1 必须更高。
+        // p.1 matches on both paths while p.2 matches only semantically, so after normalization p.1 must score higher.
         double both = scoreOf(hits, "p.1");
         double semanticOnly = scoreOf(hits, "p.2");
-        assertTrue("两路都命中应高于只被一路命中：" + both + " vs " + semanticOnly, both > semanticOnly);
+        assertTrue("matching on both paths must outrank matching on one: " + both + " vs " + semanticOnly,
+                both > semanticOnly);
         assertEquals(1.0, both, 1e-9);
     }
 
@@ -80,7 +85,7 @@ public class SemanticRetrievalTest {
 
         List<KnowledgeChunk> hits = knowledgeBase.retrieve("counter", 3);
 
-        assertFalse("提问时端点挂了也要有结果", hits.isEmpty());
+        assertFalse("a dead endpoint during a question must still yield results", hits.isEmpty());
         assertEquals("p.1", hits.get(0).pageOrScope());
     }
 
@@ -93,7 +98,7 @@ public class SemanticRetrievalTest {
         knowledgeBase.retrieve("counter", 1);
         knowledgeBase.retrieve("counter", 1);
 
-        assertEquals("第二次提问不该再等一次超时", 1, provider.queries().size());
+        assertEquals("the second question must not wait for another timeout", 1, provider.queries().size());
     }
 
     @Test
@@ -103,7 +108,7 @@ public class SemanticRetrievalTest {
         knowledgeBase.index(chunks());
         knowledgeBase.retrieve("counter", 1);
 
-        // 重新导入应当把“语义不可用”的开关重置，否则一次抖动就永久降级。
+        // A re-import must reset the "semantics unusable" switch, or one blip would degrade the session for good.
         knowledgeBase.index(chunks());
         knowledgeBase.retrieve("counter", 1);
 
@@ -126,7 +131,7 @@ public class SemanticRetrievalTest {
         RagKnowledgeBase knowledgeBase = new RagKnowledgeBase(indexFile, provider());
         knowledgeBase.index(chunks());
 
-        // 没有 key 的场景：新实例拿的是同一个索引文件，但根本没有 provider。
+        // The no-key scenario: the new instance points at the same index file but has no provider at all.
         RagKnowledgeBase reloaded = new RagKnowledgeBase(indexFile);
 
         List<KnowledgeChunk> hits = reloaded.retrieve("counter", 3);

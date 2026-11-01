@@ -68,7 +68,7 @@ record LlmSettings(URI endpoint, String apiKey, String model, Duration timeout, 
         }
     }
 
-    /** 流式开关默认开启；网关不兼容时可用环境变量关闭，不必重新发版。 */
+    /** Streaming is on by default; an environment variable turns it off for an incompatible gateway, no new release. */
     private static boolean stream(Map<String, String> environment) {
         String value = environment.get("MENTORJ_LLM_STREAM");
         if (value == null) {

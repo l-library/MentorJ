@@ -15,10 +15,11 @@ import edu.mentorj.api.EditorContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * 编辑器右键：围绕选中的代码生成课后练习题（F1 的创意智能操作）。
+ * Editor context menu: generate practice exercises around the selected code (the F1 creative intelligent action).
  *
- * <p>与其他两个智能操作的区别是输入可选：留空时由助教自己决定题型与难度，
- * 这样演示时能一键看到效果，也允许教师指定“只出改错题”这类要求。
+ * <p>What sets it apart from the other two intelligent actions is that the input is optional: leave it blank
+ * and the teaching assistant picks the exercise types and difficulty itself, so a demo shows a result in one
+ * click while a teacher can still insist on something like "only bug-finding exercises".
  */
 public final class GeneratePracticeAction extends AnAction implements DumbAware {
 
@@ -48,7 +49,7 @@ public final class GeneratePracticeAction extends AnAction implements DumbAware 
             Messages.showInfoMessage(project, MentorJBundle.message("practice.noCode"), title);
             return;
         }
-        // 输入可留空：留空时传 null，让 agent 用代码本身检索并自行设计题目。
+        // The input may stay blank: pass null then, so the agent retrieves by the code and designs the exercises.
         String focus = Messages.showMultilineInputDialog(project, MentorJBundle.message("practice.prompt"),
                 title, null, Messages.getQuestionIcon(), null);
         if (focus == null) {

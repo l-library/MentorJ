@@ -3,11 +3,12 @@ package edu.mentorj.api;
 import java.util.List;
 
 /**
- * agent 返回给界面组的一次回答。
+ * One answer the agent returns to the UI team.
  *
- * @param text                回答正文
- * @param citations           提供给 LLM 的知识块来源，检索到材料时必须非空
- * @param generalKnowledgeOnly {@code true} 表示未检索到课程材料，界面组必须展示通用知识声明
+ * @param text                the answer body
+ * @param citations           sources of the chunks given to the LLM; must be non-empty whenever material was retrieved
+ * @param generalKnowledgeOnly {@code true} means no course material was retrieved, so the UI team must show
+ *                             the general knowledge notice
  */
 public record AgentResponse(String text, List<Citation> citations, boolean generalKnowledgeOnly) {
 }

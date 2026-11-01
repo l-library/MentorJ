@@ -20,17 +20,18 @@ import org.jetbrains.annotations.Nullable;
 import java.nio.file.Path;
 
 /**
- * 组装点：唯一允许依赖各模块具体实现的地方，把知识库、工具与 agent 核心接起来。
- * 三个模块只通过 edu.mentorj.api 的接口协作，见 API.md。
+ * The assembly point: the only place allowed to depend on each module's concrete implementation, wiring the
+ * knowledge base, the tools, and the agent core together.
+ * The three modules collaborate only through the interfaces in edu.mentorj.api; see API.md.
  *
- * <p>构造函数只做接线，不读磁盘也不发请求：项目级 service 在 EDT 上实例化，索引由
- * {@link RagKnowledgeBase} 在首次使用时加载。没有配置 {@code MENTORJ_LLM_API_KEY} 时知识库只有
- * BM25 一路，功能不变。
+ * <p>The constructor only wires things up: it reads no disk and sends no request, because the project-level
+ * service is created on the EDT and the index is loaded by {@link RagKnowledgeBase} on first use. Without a
+ * configured {@code MENTORJ_LLM_API_KEY} the knowledge base has only the BM25 path, and behavior is unchanged.
  */
 @Service(Service.Level.PROJECT)
 public final class MentorJProjectService {
 
-    /** 索引文件名，放在项目的 .idea 下（已被 .gitignore 排除，不随仓库分发）。 */
+    /** Index file name, stored under the project's .idea directory (gitignored, so it never ships with the repo). */
     private static final String INDEX_FILE_NAME = "mentorj-index.json";
 
     private final AgentService agentService;
@@ -57,13 +58,14 @@ public final class MentorJProjectService {
         return documentLibrary;
     }
 
-    /** 检索入口，供不经过 LLM 的调用方（例如检索质量诊断）使用。 */
+    /** Retrieval entry point for callers that bypass the LLM, such as retrieval quality diagnostics. */
     public KnowledgeBase knowledgeBase() {
         return knowledgeBase;
     }
 
     /**
-     * @return 索引文件路径；项目没有基础目录时返回 {@code null}，索引退化为内存态
+     * @return the index file path; {@code null} when the project has no base directory, in which case the
+     *         index degrades to in-memory
      */
     private static @Nullable Path indexFile(Project project) {
         String basePath = project.getBasePath();

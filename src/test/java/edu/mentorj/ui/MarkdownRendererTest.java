@@ -13,7 +13,7 @@ public class MarkdownRendererTest {
 
     private final MarkdownRenderer renderer = new MarkdownRenderer(
             (code, language) -> List.of(new MarkdownRenderer.Run(code, Color.RED, false, false)),
-            "复制", null, new ChatStyles.CodeStyle("#f7f8fa", "#888888", "#111111"));
+            "Copy", null, new ChatStyles.CodeStyle("#f7f8fa", "#888888", "#111111"));
 
     @Test
     public void rendersInlineMarkdownAndGfmTables() {
@@ -75,7 +75,7 @@ public class MarkdownRendererTest {
         assertFalse(html.contains("<script>"));
         assertTrue(html.contains("&lt;script&gt;"));
         assertFalse(html.contains("<img"));
-        assertTrue(html.contains("[图片：diagram]"));
+        assertTrue(html.contains("[Image: diagram]"));
     }
 
     @Test
@@ -87,7 +87,7 @@ public class MarkdownRendererTest {
     @Test
     public void addsAnInsertLinkOnlyWhenRequested() {
         MarkdownRenderer withInsert = new MarkdownRenderer((code, language) -> List.of(),
-                "复制", "插入", new ChatStyles.CodeStyle("#fff", "#888", "#111"));
+                "Copy", "Insert", new ChatStyles.CodeStyle("#fff", "#888", "#111"));
         assertTrue(withInsert.render("```\nx\n```").html().contains("insert:code-0"));
         assertFalse(renderer.render("```\nx\n```").html().contains("insert:"));
     }

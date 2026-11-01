@@ -4,26 +4,29 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * 文档导入、索引清空与统计，RAG 组实现，界面组调用。
+ * Document import, index clearing, and statistics: implemented by the RAG team, called by the UI team.
  *
- * <p>阻塞方法，界面组必须在后台线程调用；与 {@link KnowledgeBase#retrieve} 可并发。
+ * <p>The methods block, so the UI team must call them on a background thread; they may run concurrently with
+ * {@link KnowledgeBase#retrieve}.
  */
 public interface DocumentLibrary {
 
     /**
-     * 全量重建索引：清空现有索引 → 逐个解析传入的文档 → 切块 → 建索引 → 落盘。
+     * Rebuild the whole index: clear the existing index -> parse each given document -> chunk -> build the
+     * index -> write to disk.
      *
-     * <p>不支持的格式与解析失败都记进 {@link ImportResult#failures()}，不抛异常，也不影响其余文档。
+     * <p>Unsupported formats and parse failures are recorded in {@link ImportResult#failures()} instead of
+     * thrown, and do not affect the other documents.
      *
-     * @param documents 待索引的文档；传空表等于清空索引
-     * @param progress  进度回调，可为 {@code null}
-     * @return 本次导入的结果，不返回 {@code null}
+     * @param documents documents to index; an empty list is equivalent to clearing the index
+     * @param progress  progress callback; may be {@code null}
+     * @return the result of this import, never {@code null}
      */
     ImportResult importDocuments(List<Path> documents, ProgressListener progress);
 
-    /** 清空索引，下次检索返回空表。 */
+    /** Clear the index so the next retrieval returns an empty list. */
     void clear();
 
-    /** 索引现状；尚未导入时 {@link Statistics#indexedAt()} 为 {@code null}。 */
+    /** Current index state; {@link Statistics#indexedAt()} is {@code null} before the first import. */
     Statistics statistics();
 }

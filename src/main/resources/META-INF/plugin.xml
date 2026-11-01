@@ -25,35 +25,35 @@
     <depends>com.intellij.modules.platform</depends>
 
 
-    <!-- 文案 bundle，action 的 text/description 从这里取。 -->
+    <!-- Text bundle; actions take their text/description from here. -->
     <resource-bundle>messages.MentorJBundle</resource-bundle>
 
     <!-- Extensions defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <!-- 侧边栏 AI Agent 界面（界面组）：与助教对话的 tool window。侧边栏按钮、插件列表和菜单项共用同一图标。 -->
+        <!-- Sidebar AI agent UI (UI team): the tool window for talking to the teaching assistant. The sidebar button, the plugin list and the menu items share one icon. -->
         <toolWindow id="MentorJ" anchor="right" icon="/icons/mentorj/mentorj.svg"
                     factoryClass="edu.mentorj.ui.MentorJToolWindowFactory"/>
     </extensions>
 
-    <!-- 智能操作入口（界面组）。 -->
+    <!-- Intelligent action entry points (UI team). -->
     <actions>
-        <!-- 就选中代码提问：编辑器右键菜单入口。文案取自 bundle 的 action.<id>.text/.description。 -->
+        <!-- Ask about selected code: editor context menu entry. Text comes from the bundle's action.<id>.text/.description. -->
         <action id="edu.mentorj.AskCode" class="edu.mentorj.ui.AskCodeAction"
                 icon="/icons/mentorj/mentorj.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
-        <!-- 生成单元测试：编辑器右键菜单入口。 -->
+        <!-- Generate unit test: editor context menu entry. -->
         <action id="edu.mentorj.GenerateUnitTest" class="edu.mentorj.ui.GenerateUnitTestAction"
                 icon="/icons/mentorj/mentorj.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
-        <!-- 生成练习题：F1 的创意智能操作，编辑器右键入口。 -->
+        <!-- Generate practice exercises: the F1 creative intelligent action, an editor context menu entry. -->
         <action id="edu.mentorj.GeneratePractice" class="edu.mentorj.ui.GeneratePracticeAction"
                 icon="/icons/mentorj/mentorj.svg">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
-        <!-- 生成 Git 提交消息：暂挂 Tools 菜单，后续可移到 commit 对话框。 -->
+        <!-- Generate Git commit message: parked in the Tools menu, may move to the commit dialog later. -->
         <action id="edu.mentorj.GenerateCommitMessage" class="edu.mentorj.ui.GenerateCommitMessageAction"
                 icon="/icons/mentorj/mentorj.svg">
             <add-to-group group-id="ToolsMenu" anchor="last"/>

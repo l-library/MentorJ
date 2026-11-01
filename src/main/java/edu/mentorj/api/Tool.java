@@ -2,21 +2,21 @@ package edu.mentorj.api;
 
 import java.util.List;
 
-/** agent 循环可调用的工具，各组提供实现后注册进 ToolRegistry。 */
+/** A tool the agent loop can call; each team registers its implementations in ToolRegistry. */
 public interface Tool {
 
-    /** 工具名、描述与参数 JSON Schema，交给 LLM 决定何时调用。 */
+    /** Tool name, description, and parameter JSON Schema, handed to the LLM so it can decide when to call the tool. */
     LlmService.ToolSpec spec();
 
     /**
-     * 执行一次工具调用。
+     * Run one tool call.
      *
-     * @param argumentsJson 参数 JSON 文本
-     * @return 回填给 LLM 的文本结果
+     * @param argumentsJson arguments as JSON text
+     * @return the text result fed back to the LLM
      */
     String execute(String argumentsJson);
 
-    /** 检索工具可覆盖此方法提供真实来源；旧工具默认只返回文本。 */
+    /** Retrieval tools may override this to supply real sources; older tools return text only by default. */
     default ExecutionResult executeWithSources(String argumentsJson) {
         return new ExecutionResult(execute(argumentsJson), List.of());
     }

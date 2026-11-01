@@ -30,8 +30,10 @@ public class ChatHistoryStoreTest {
     public void roundTripsQuestionsAnswersAndCitations() throws IOException {
         Path file = historyFile();
         ChatHistoryStore store = new ChatHistoryStore(file);
-        ChatMessage question = new ChatMessage(ChatMessage.Role.USER, "什么是封装？", Instant.ofEpochMilli(1000));
-        ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "封装是**隐藏实现**。",
+        ChatMessage question = new ChatMessage(ChatMessage.Role.USER, "What is encapsulation?",
+                Instant.ofEpochMilli(1000));
+        ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT,
+                "Encapsulation is **hiding the implementation**.",
                 Instant.ofEpochMilli(2000));
         answer.done(answer.text(), List.of(new Citation("Lec-3.pdf", "P12-P14")), false);
         store.save(List.of(question, answer));
@@ -39,7 +41,7 @@ public class ChatHistoryStoreTest {
         List<ChatMessage> loaded = store.load();
         assertEquals(2, loaded.size());
         assertEquals(ChatMessage.Role.USER, loaded.get(0).role());
-        assertEquals("什么是封装？", loaded.get(0).text());
+        assertEquals("What is encapsulation?", loaded.get(0).text());
         assertEquals(Instant.ofEpochMilli(1000), loaded.get(0).time());
         assertEquals(ChatMessage.State.DONE, loaded.get(1).state());
         assertEquals(List.of(new Citation("Lec-3.pdf", "P12-P14")), loaded.get(1).citations());

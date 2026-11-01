@@ -3,11 +3,11 @@ package edu.mentorj.api;
 import java.util.List;
 
 /**
- * 一次导入的结果。
+ * The result of one import.
  *
- * @param documents 已索引的文档名
- * @param chunks    已索引的知识块总数
- * @param failures  失败原因，每条形如 {@code 文件名: 原因}；成功时为空表
+ * @param documents names of the indexed documents
+ * @param chunks    total number of indexed chunks
+ * @param failures  failure reasons, each shaped {@code file name: reason}; an empty list on success
  */
 public record ImportResult(List<String> documents, int chunks, List<String> failures) {
 }

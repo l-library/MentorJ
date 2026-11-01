@@ -9,10 +9,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * BM25 词法检索，纯内存倒排表，构造后只读。
+ * BM25 lexical retrieval over a pure in-memory inverted index that is read-only once built.
  *
- * <p>为什么用它做第一路：零网络、确定性、可解释（能说出命中哪些词），演示与评测都不会因为
- * 断网或配额而失效。语义召回由 embedding 那一路补，两路排名在 {@link RagKnowledgeBase} 里融合。
+ * <p>Why it is the first retrieval path: no network, deterministic, explainable (it can name the terms that
+ * matched), so neither a demo nor an evaluation breaks on a dropped connection or an exhausted quota.
+ * Semantic recall comes from the embedding path, and {@link RagKnowledgeBase} fuses the two rankings.
  */
 final class Bm25Index {
 
@@ -50,7 +51,7 @@ final class Bm25Index {
             }
         }
         Map<String, int[]> postings = new HashMap<>();
-        // 每个词的出现记录按块号升序，因此 (块号, 词频) 可以压成一个定长数组。
+        // Each term's postings are in ascending chunk order, so (chunk, term frequency) packs into one int array.
         collected.forEach((term, indexes) -> {
             int[] flat = new int[indexes.size() * 2];
             for (int i = 0; i < indexes.size(); i++) {
@@ -65,7 +66,8 @@ final class Bm25Index {
     }
 
     /**
-     * @return 命中的块，按得分降序；得分为 0 的块不返回，否则调用方会把无关材料当成引用
+     * @return matched chunks in descending score order; chunks scoring 0 are dropped, since the caller would
+     *         otherwise cite irrelevant material
      */
     List<Hit> search(String query, int limit) {
         Map<Integer, Double> scores = new HashMap<>();
@@ -98,11 +100,12 @@ final class Bm25Index {
     }
 
     /**
-     * 一条命中。
+     * One hit.
      *
-     * @param chunk    块号
-     * @param score    BM25 原始分（无上界，只用于排序，不对外暴露）
-     * @param coverage 查询里有多少比例的词出现在这个块里，用于没有向量时的相关性闸门
+     * @param chunk    chunk index
+     * @param score    raw BM25 score (unbounded, used only for ordering and never exposed)
+     * @param coverage what fraction of the query terms appear in this chunk, used by the relevance gate when
+     *                 no vectors exist
      */
     record Hit(int chunk, double score, double coverage) {
     }

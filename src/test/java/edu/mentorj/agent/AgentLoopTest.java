@@ -69,16 +69,17 @@ public class AgentLoopTest {
             return List.of(new KnowledgeChunk("Collections and generics", "Week5.pdf", "12-14", 0.8));
         }, request -> {
             sent.set(request);
-            return new LlmService.Result("知识点...\n1. 题目...\n参考答案：...", List.of());
+            return new LlmService.Result("Concepts...\n1. Exercise...\nReference answer: ...", List.of());
         }, new SystemPromptBuilder(), new ToolRegistry());
 
-        // 用户不写补充要求时，检索依据是选中的代码；空查询会让检索退化成噪声。
+        // When the user writes no extra requirements, the selected code drives retrieval; an empty query
+        // would degrade retrieval to noise.
         AgentResponse response = agent.respond(new AgentRequest(AgentAction.CREATIVE, null,
                 new EditorContext("src/Cart.java", "class Cart {}",
                         "List<String> items = new ArrayList<>();"), null));
 
         assertEquals("List<String> items = new ArrayList<>();", query.get());
-        assertTrue(sent.get().systemPrompt().contains("练习题"));
+        assertTrue(sent.get().systemPrompt().contains("practice exercises"));
         assertEquals(List.of(new Citation("Week5.pdf", "12-14")), response.citations());
         assertFalse(response.generalKnowledgeOnly());
     }
@@ -178,7 +179,7 @@ public class AgentLoopTest {
         assertEquals(3, executions.get());
         assertEquals(4, sent.size());
         assertTrue(sent.get(3).tools().isEmpty());
-        assertTrue(sent.get(3).systemPrompt().contains("勿再调用工具"));
+        assertTrue(sent.get(3).systemPrompt().contains("do not call any more tools"));
     }
 
     @Test
@@ -192,9 +193,9 @@ public class AgentLoopTest {
 
             @Override
             public Result complete(Request request, StreamListener listener) {
-                listener.onText("构造器");
-                listener.onText("注入");
-                return new Result("构造器注入", List.of());
+                listener.onText("Constructor ");
+                listener.onText("injection");
+                return new Result("Constructor injection", List.of());
             }
         };
         AgentLoop agent = new AgentLoop(
@@ -206,8 +207,8 @@ public class AgentLoopTest {
                 events.add("text:" + delta);
             }
         });
-        assertEquals(List.of("text:构造器", "text:注入"), events);
-        assertEquals("构造器注入", response.text());
+        assertEquals(List.of("text:Constructor ", "text:injection"), events);
+        assertEquals("Constructor injection", response.text());
         assertEquals(List.of(new Citation("Spring.pdf", "5")), response.citations());
     }
 
@@ -286,7 +287,7 @@ public class AgentLoopTest {
         };
         AgentResponse response = agent.respond(question(), listener);
         assertEquals(0, executions.get());
-        assertTrue(response.text().contains("取消"));
+        assertTrue(response.text().contains("cancelled"));
     }
 
     @Test
@@ -317,7 +318,7 @@ public class AgentLoopTest {
             }
         });
         assertEquals(0, calls.get());
-        assertTrue(response.text().contains("取消"));
+        assertTrue(response.text().contains("cancelled"));
     }
 
     @Test
@@ -328,7 +329,7 @@ public class AgentLoopTest {
                 request -> search("call_" + calls.incrementAndGet()),
                 new SystemPromptBuilder(), registry(executions, List.of()));
         AgentResponse response = agent.respond(question());
-        assertTrue(response.text().contains("工具调用限制"));
+        assertTrue(response.text().contains("tool-call limit"));
         assertEquals(4, calls.get());
         assertEquals(3, executions.get());
         assertFalse(response.generalKnowledgeOnly());
@@ -398,7 +399,7 @@ public class AgentLoopTest {
             throw new AssertionError("Must not generate after failed initial retrieval");
         }, new SystemPromptBuilder(), new ToolRegistry());
         AgentResponse response = agent.respond(question());
-        assertTrue(response.text().contains("检索失败"));
+        assertTrue(response.text().contains("retrieval failed"));
         assertFalse(response.text().contains("secret"));
         assertFalse(response.generalKnowledgeOnly());
     }
@@ -410,10 +411,10 @@ public class AgentLoopTest {
         }, request -> {
             throw new AssertionError("Cancelled request reached model");
         }, new SystemPromptBuilder(), new ToolRegistry());
-        assertTrue(agent.respond(question()).text().contains("取消"));
+        assertTrue(agent.respond(question()).text().contains("cancelled"));
         try {
             Thread.currentThread().interrupt();
-            assertTrue(agent.respond(question()).text().contains("取消"));
+            assertTrue(agent.respond(question()).text().contains("cancelled"));
             assertTrue(Thread.currentThread().isInterrupted());
         } finally {
             Thread.interrupted();

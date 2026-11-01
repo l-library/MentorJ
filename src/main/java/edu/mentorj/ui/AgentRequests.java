@@ -19,20 +19,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 界面组调用 agent 的唯一入口：统一后台执行、流式增量合并、取消与结果文案。
+ * The UI team's only entry point for calling the agent: it centralizes background execution, streamed increment
+ * merging, cancellation, and result text.
  *
- * <p>{@link edu.mentorj.api.AgentService#respond} 同步阻塞，一律放进 {@link Task.Backgroundable}。
- * 增量在后台线程到达，这里合并成每 60ms 一次 EDT 更新，避免逐字刷新压垮界面。
- * 所有回调都在 EDT 上执行。
+ * <p>{@link edu.mentorj.api.AgentService#respond} blocks synchronously, so every call goes into a
+ * {@link Task.Backgroundable}. Increments arrive on the background thread and are merged here into one EDT
+ * update every 60ms, so per-character repainting cannot overwhelm the UI.
+ * All callbacks run on the EDT.
  */
 final class AgentRequests {
 
-    /** 一次请求的生命周期回调，全部在 EDT 上调用。 */
+    /** Lifecycle callbacks of one request, all called on the EDT. */
     interface Callbacks {
-        /** 当前已收到的完整正文（不是增量），首次为空串。 */
+        /** The full text received so far (not an increment); an empty string the first time. */
         void onText(String text);
 
-        /** 本轮以工具调用结束，此前的正文不是最终回答。 */
+        /** This round ended in tool calls, so the text so far is not the final answer. */
         default void onToolCalls(List<String> toolNames) {
         }
 
@@ -52,9 +54,9 @@ final class AgentRequests {
     }
 
     /**
-     * 后台执行一次请求。
+     * Run one request on a background thread.
      *
-     * @return 可取消句柄；取消后以 {@link Callbacks#onCancelled()} 收尾
+     * @return a cancellable handle; cancelling ends with {@link Callbacks#onCancelled()}
      */
     static @NotNull Handle submit(@NotNull Project project,
                                   @NotNull String title,
@@ -123,20 +125,21 @@ final class AgentRequests {
         };
     }
 
-    /** 打开结果对话框并立即开始请求，正文在对话框里流式刷新。 */
+    /** Open the result dialog and start the request immediately; the body streams into the dialog. */
     static void showResult(@NotNull Project project, @NotNull String title, @NotNull AgentRequest request) {
         new ResultDialog(project, title, request).show();
     }
 
     /**
-     * agent 侧的错误回答不带引用、也不带通用知识标志；正常回答两者必有其一（见 API.md 全局规则）。
-     * 界面据此把配置/网络错误渲染成错误卡片，而不是普通回答。
+     * An error answer from the agent carries neither citations nor the general knowledge flag, while a normal
+     * answer always has one of the two (see the global rules in API.md). The UI relies on that to render
+     * configuration and network errors as error cards instead of ordinary answers.
      */
     static boolean isError(@NotNull AgentResponse response) {
         return response.citations().isEmpty() && !response.generalKnowledgeOnly();
     }
 
-    /** 把未预期的异常转成用户能读的一句话，不暴露堆栈。 */
+    /** Turn an unexpected exception into one readable sentence for the user without exposing the stack trace. */
     static @NotNull String unexpected(@NotNull Throwable error) {
         String detail = error.getMessage();
         return MentorJBundle.message("error.unexpected",
@@ -147,7 +150,7 @@ final class AgentRequests {
         ApplicationManager.getApplication().invokeLater(action, ModalityState.any());
     }
 
-    /** 后台线程只追加，EDT 定时读取快照；重复快照不触发重绘。 */
+    /** The background thread only appends and the EDT polls a snapshot on a timer; a repeat does not repaint. */
     private static final class DeltaPump {
 
         private final Callbacks callbacks;

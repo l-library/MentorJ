@@ -21,12 +21,15 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 
 /**
- * 同济 AGI 平台的 OpenAI 兼容 embedding 客户端。
+ * OpenAI-compatible embedding client for the Tongji AGI platform.
  *
- * <p>参数是实测出来的，不是猜的：单请求最多 8 条（16 条要 42 秒，32 条 180 秒不返回），平台套餐限
- * 2 个并发请求（第 3 个直接 429），因此这里用信号量把并发压到 2，并对 429/5xx 退避重试。
+ * <p>The parameters are measured, not guessed: one request carries at most 8 inputs (16 inputs take 42
+ * seconds, 32 return nothing after 180 seconds), and the platform plan allows 2 concurrent requests (a
+ * third returns 429 immediately), so a semaphore caps concurrency at 2 and 429/5xx responses are retried
+ * with backoff.
  *
- * <p>提问路径用 5 秒超时而不是 60 秒：接口挂了的时候，用户宁可用纯 BM25 的答案，也不想等着看转圈。
+ * <p>The question path uses a 5 second timeout rather than 60: when the endpoint is down, users would
+ * rather get a BM25-only answer than watch a spinner.
  */
 public final class TongjiEmbeddingClient implements EmbeddingProvider {
 
@@ -58,9 +61,9 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
     }
 
     /**
-     * 按环境变量构造。
+     * Build from environment variables.
      *
-     * @return key 未配置时返回 {@code null}，检索自动只用 BM25
+     * @return {@code null} when the key is not configured, in which case retrieval uses BM25 only
      */
     public static TongjiEmbeddingClient fromEnvironment() {
         String key = System.getenv(API_KEY_ENV);
@@ -82,7 +85,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
             return List.of();
         }
         List<float[]> vectors = new ArrayList<>(texts.size());
-        // 批最多 4 批一起跑，真正卡住并发的是 permits 信号量。
+        // Run at most 4 batches at a time; the permits semaphore is what actually bounds concurrency.
         try (ExecutorService pool = Executors.newFixedThreadPool(Math.min(4, batches(texts.size())), runnable -> {
             Thread thread = new Thread(runnable, "mentorj-embedding");
             thread.setDaemon(true);
@@ -104,7 +107,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
     public float[] embedQuery(String query) throws IOException {
         List<float[]> vectors = request(List.of(query), QUERY_TIMEOUT);
         if (vectors.size() != 1) {
-            throw new IOException("期望 1 条向量，实际 " + vectors.size() + " 条");
+            throw new IOException("expected 1 vector but got " + vectors.size());
         }
         return vectors.get(0);
     }
@@ -118,13 +121,13 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
             return future.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException("等待向量化结果时被中断", e);
+            throw new IOException("interrupted while waiting for embedding results", e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof IOException io) {
                 throw io;
             }
-            throw new IOException("向量化失败：" + cause, cause);
+            throw new IOException("embedding failed: " + cause, cause);
         }
     }
 
@@ -143,7 +146,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
                 permits.release();
             }
         }
-        throw lastFailure == null ? new IOException("向量化失败") : lastFailure;
+        throw lastFailure == null ? new IOException("embedding failed") : lastFailure;
     }
 
     private List<float[]> send(List<String> texts, Duration timeout) throws IOException, RetryableException {
@@ -165,7 +168,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
             response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException("向量化请求被中断", e);
+            throw new IOException("embedding request interrupted", e);
         }
         if (response.statusCode() == 429 || response.statusCode() >= 500) {
             throw new RetryableException("HTTP " + response.statusCode() + "：" + response.body());
@@ -180,7 +183,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         JsonElement data = root.get("data");
         if (data == null || !data.isJsonArray()) {
-            throw new IOException("响应缺少 data 数组：" + json);
+            throw new IOException("response is missing the data array: " + json);
         }
         List<float[]> vectors = new ArrayList<>();
         for (JsonElement element : data.getAsJsonArray()) {
@@ -203,11 +206,11 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException("退避等待被中断", e);
+            throw new IOException("interrupted during backoff wait", e);
         }
     }
 
-    /** 4xx/5xx 里值得重试的那一类，用异常类型把“可重试”和“真失败”分开。 */
+    /** The 4xx/5xx failures worth retrying, separated from real failures by exception type. */
     private static final class RetryableException extends Exception {
 
         RetryableException(String message) {
@@ -215,7 +218,7 @@ public final class TongjiEmbeddingClient implements EmbeddingProvider {
         }
     }
 
-    /** 便于日志里不泄露 key。 */
+    /** Keeps the key out of logs. */
     @Override
     public String toString() {
         return "TongjiEmbeddingClient{" + endpoint + ", model=" + MODEL + ", dimensions=" + dimensions + "}";

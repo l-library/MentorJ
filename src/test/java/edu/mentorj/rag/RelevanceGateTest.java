@@ -10,9 +10,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * 相关性闸门：语料没覆盖的问题必须返回空表，否则 agent 会拿无关页面当引用。
+ * Relevance gate: a question the corpus does not cover must return an empty list, or the agent will cite an
+ * unrelated page.
  *
- * <p>用假 provider 精确控制相似度，因此断言的是闸门逻辑本身，而不是模型的表现。
+ * <p>A fake provider sets the similarities exactly, so the assertions target the gate logic itself rather than
+ * how the model behaves.
  */
 public class RelevanceGateTest {
 
@@ -22,7 +24,7 @@ public class RelevanceGateTest {
         return new KnowledgeChunk(text, "deck.pdf", page, 0);
     }
 
-    /** 每一块与查询的余弦由给定值决定。 */
+    /** The cosine between each chunk and the query is fixed by the given values. */
     private static RagKnowledgeBase withSimilarities(double... similarities) {
         FakeEmbeddingProvider provider = new FakeEmbeddingProvider(2, text -> switch (text) {
             case "q" -> QUERY;
@@ -41,7 +43,7 @@ public class RelevanceGateTest {
 
     @Test
     public void everythingEquallySimilarMeansTheCorpusDoesNotCoverIt() {
-        // 三块一模一样地“中等相关”，说明谁都不是答案。
+        // All three chunks are equally "moderately relevant", which means none of them is the answer.
         assertEquals(List.of(), withSimilarities(0.45, 0.45, 0.45).retrieve("q", 3));
     }
 
@@ -55,7 +57,7 @@ public class RelevanceGateTest {
 
     @Test
     public void aHighTopScoreIsEnoughEvenWhenNothingStandsOut() {
-        // 差值只有 0.25，没到 0.30，但榜首 0.70 已经够定论。
+        // The gap is only 0.25, short of 0.30, but the top score of 0.70 already settles it.
         List<KnowledgeChunk> hits = withSimilarities(0.45, 0.70, 0.45).retrieve("q", 3);
 
         assertFalse(hits.isEmpty());
@@ -64,7 +66,7 @@ public class RelevanceGateTest {
 
     @Test
     public void borderlineTopWithFlatRestIsRejected() {
-        // 这是实测里最难分的一档：0.55 上下、没有明显领先，语料其实没讲这个。
+        // The hardest band to separate in practice: around 0.55 with no clear leader, and the corpus never covers this.
         assertEquals(List.of(), withSimilarities(0.52, 0.55, 0.50).retrieve("q", 3));
     }
 
@@ -72,22 +74,23 @@ public class RelevanceGateTest {
     public void trailingOffTopicChunksDoNotBecomeCitations() {
         List<KnowledgeChunk> hits = withSimilarities(0.75, 0.30, 0.20).retrieve("q", 3);
 
-        assertEquals("只有过线的块才该进引用", 1, hits.size());
+        assertEquals("only chunks past the line belong in the citations", 1, hits.size());
         assertEquals("p.1", hits.get(0).pageOrScope());
     }
 
     @Test
     public void gapThresholdHoldsOnTheMeasuredBoundary() {
-        // 实测（218 块）：正例 max-median 最低 0.319，负例最高 0.280，阈值取 0.30。
-        assertTrue("正例边界：差 0.32", RagKnowledgeBase.coversQuestion(
+        // Measured (218 chunks): the max-median gap bottoms out at 0.319 for positives and peaks at 0.280
+        // for negatives, so the threshold sits at 0.30.
+        assertTrue("positive boundary: gap 0.32", RagKnowledgeBase.coversQuestion(
                 new double[]{0.55, 0.23, 0.23, 0.23, 0.23}));
-        assertFalse("负例边界：差 0.265", RagKnowledgeBase.coversQuestion(
+        assertFalse("negative boundary: gap 0.265", RagKnowledgeBase.coversQuestion(
                 new double[]{0.545, 0.28, 0.28, 0.28, 0.28}));
     }
 
     @Test
     public void aHighTopScoreDoesNotNeedAGap() {
-        // 语料整体都相关时差值会很小，此时靠榜首余弦定论。
+        // When the whole corpus is relevant the gap stays small, and the top cosine settles it.
         assertTrue(RagKnowledgeBase.coversQuestion(new double[]{0.62, 0.60, 0.61}));
     }
 }

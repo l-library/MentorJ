@@ -1,115 +1,117 @@
-# MentorJ 模块协作契约（API.md）
+# MentorJ module collaboration contract (API.md)
 
-> 本文件是三个小组并行开发的接口约定，保证模块之间协作不出问题。**改契约必须先改本文件，三方确认后再改代码**；文档与实现不一致时以本文件为准。
+> This document is the interface agreement for the three teams working in parallel, so that collaboration between modules does not break. **Changing the contract means changing this file first, getting all three teams to agree, and only then changing code**; where the document and the implementation disagree, this file wins.
 
-小组分工：
+Team split:
 
-| 模块 | 职责 | 包 / 目录 | 不要做 |
+| Module | Responsibility | Package / directory | Must not do |
 | --- | --- | --- | --- |
-| 界面组 | 侧边栏 tool window、编辑器右键菜单、三个智能操作的触发入口与文本输入框、上下文采集（选中代码、staged diff）、回答与引用 / 免责声明的展示 | `edu.mentorj.ui`、`src/main/resources/messages/` | 不直接调用 LLM，不实现检索 |
-| agent 核心组 | `AgentLoop`（循环）、系统提示词（含引用规则）、工具调用（`ToolRegistry` / `Tool`）、`LlmService` 的真实实现（LLM 接入）、单测与 commit message 的生成提示词 | `edu.mentorj.agent` | 不碰 Swing / PSI / EDT |
-| RAG 和其他组 | 文档处理（解析课程材料、切块、保留页码 / 范围）、知识库与检索、检索工具、CI、docs（含本文件） | `edu.mentorj.rag`、CI 配置、`*.md` | 不生成回答文案 |
-| 共享契约 | 三个模块共用的接口与数据类型，只放契约不放实现 | `edu.mentorj.api` | 改动需三方确认 |
-| 组装 | 把三个模块接起来，暴露唯一入口 | `edu.mentorj.MentorJProjectService` | 只做接线，不写业务逻辑 |
+| UI team | Sidebar tool window, editor context menu, the trigger entry points and text inputs of the three intelligent actions, context collection (selected code, staged diff), display of answers, citations and disclaimers | `edu.mentorj.ui`, `src/main/resources/messages/` | No direct LLM calls, no retrieval implementation |
+| Agent core team | `AgentLoop` (the loop), the system prompt (with citation rules), tool invocation (`ToolRegistry` / `Tool`), the real `LlmService` implementation (LLM access), the generation prompts for unit tests and commit messages | `edu.mentorj.agent` | No Swing / PSI / EDT |
+| RAG and other teams | Document processing (parse course material, chunk, keep page / scope), knowledge base and retrieval, the retrieval tool, CI, docs (including this file) | `edu.mentorj.rag`, CI configuration, `*.md` | No answer text generation |
+| Shared contract | Interfaces and data types shared by the three modules; contract only, no implementation | `edu.mentorj.api` | Changes need all three teams to agree |
+| Assembly | Wires the three modules together and exposes the single entry point | `edu.mentorj.MentorJProjectService` | Wiring only, no business logic |
 
-三个模块之间**不互相 import**，全部通过 `edu.mentorj.api` 里的接口协作；唯一允许 import 各模块具体实现的地方是组装点 `MentorJProjectService`。
+The three modules **never import each other**; they collaborate entirely through the interfaces in `edu.mentorj.api`. The only place allowed to import a module's concrete implementation is the assembly point `MentorJProjectService`.
 
 ```
-界面组(ui) ── AgentRequest / AgentResponse ──▶ agent 核心(agent)
-                                                  │
+UI (ui) ──── AgentRequest / AgentResponse ────▶ agent core (agent)
+                                                   │
                                         KnowledgeBase.retrieve / Tool
-                                                  ▼
-                          RAG(rag)：DocumentProcessor → 知识库 → 检索
+                                                   ▼
+                          RAG (rag): DocumentProcessor → knowledge base → retrieval
 ```
 
-## 1. 包结构
+## 1. Package layout
 
 ```
 src/main/java/edu/mentorj/
-├── api/                        共享契约（接口 + 数据类型），改动需三方确认
-│   ├── AgentAction.java        智能操作类型枚举
-│   ├── AgentRequest.java       一次请求（问题 / 场景 + 上下文）
-│   ├── AgentResponse.java      一次回答（正文 + 引用 + 免责标志）
-│   ├── AgentService.java       agent 入口接口
-│   ├── Citation.java           来源引用（文档 + 页码/范围）
-│   ├── DocumentLibrary.java    文档导入 / 清空 / 索引统计（界面组调用，RAG 组实现）
-│   ├── EditorContext.java      编辑器上下文（文件、源码、选中代码）
-│   ├── ImportResult.java       一次导入的结果（已索引文档、知识块数、失败清单）
-│   ├── KnowledgeBase.java      知识库检索接口
-│   ├── KnowledgeChunk.java     知识块（内容 + 来源 + 页码/范围 + 分数）
-│   ├── LlmService.java         LLM 调用接口（含消息 / 工具调用数据类型）
-│   ├── ProgressListener.java   导入进度回调（纯 Java，不引平台类型）
-│   ├── Statistics.java         索引现状（文档清单、知识块数、索引时间）
-│   ├── StreamListener.java     回答增量回调（纯 Java，不引平台类型）
-│   └── Tool.java               agent 可调用的工具接口
-├── agent/                      agent 核心组：循环、系统提示词、工具调用、LLM 接入
-│   ├── AgentLoop.java          AgentService 实现：检索 → 提示词 → LLM → 工具循环
-│   ├── SystemPromptBuilder.java 系统提示词（助教身份 + 引用规则 + 分操作指令）
-│   ├── ToolRegistry.java       工具注册与调用
-│   ├── ChatCompletionsLlmService.java  文本生成与原生工具调用接入
-│   ├── LlmSettings.java        本地环境变量配置
-│   └── LlmException.java       可展示的配置与调用错误
-├── rag/                        RAG 组：文档处理、知识库、检索工具、导入服务
-│   ├── DocumentProcessor.java  课程材料解析与切块（保留页码/范围）
-│   ├── KnowledgeSearchTool.java 检索工具（实现 api.Tool，供 agent 工具调用）
-│   ├── RagDocumentLibrary.java DocumentLibrary 实现：导入 → 切块 → 建索引 → 落盘
-│   └── RagKnowledgeBase.java   KnowledgeBase 实现（BM25 + 可选 embedding 混合检索）
-├── ui/                         界面组：侧边栏、右键菜单、智能操作入口
-│   ├── AgentRequests.java      统一的 agent 调用：后台执行、流式合并、取消与结果文案
-│   ├── AskCodeAction.java      编辑器右键：就选中代码提问
-│   ├── ChatHistoryStore.java   侧边栏历史持久化（.idea/mentorj-chat.json）
-│   ├── ChatMessage.java        一条问答 / 提示的展示模型
-│   ├── ChatStyles.java         主题颜色、字体与卡片 HTML 规则
-│   ├── ChatTranscript.java     消息卡片列表：滚动、自动贴底、回到最新
-│   ├── CodeHighlighter.java    代码块按 IDE 配色高亮
-│   ├── CourseMaterialPanel.java          侧边栏顶部：导入 / 清空 / 索引统计
-│   ├── EditorContexts.java     编辑器上下文采集
-│   ├── GenerateCommitMessageAction.java  生成 Git 提交消息
-│   ├── GeneratePracticeAction.java       生成练习题（创意智能操作）
-│   ├── GenerateUnitTestAction.java       生成单元测试
-│   ├── MarkdownRenderer.java   Markdown → HTML（表格、代码块、转义）
-│   ├── MentorJChatPanel.java             侧边栏对话区：提问、消息卡片、选中代码、历史
-│   ├── MentorJToolWindowFactory.java     侧边栏 tool window 装配
-│   ├── MessageCard.java        单条消息卡片：用户气泡 / 助教卡片 / 错误卡片
-│   ├── ResultDialog.java       结果对话框：打开即流式、可停止、可复制
-│   └── StagedDiff.java         采集 git diff --cached 作为 staged 改动
-├── MentorJBundle.java          文案 bundle 访问器
-└── MentorJProjectService.java  组装点：构造知识库、工具、AgentService
+├── api/                        shared contract (interfaces + data types); changes need all three teams
+│   ├── AgentAction.java        enum of intelligent action types
+│   ├── AgentRequest.java       one request (question / scenario + context)
+│   ├── AgentResponse.java      one answer (body + citations + disclaimer flag)
+│   ├── AgentService.java       agent entry point interface
+│   ├── Citation.java           source citation (document + page/scope)
+│   ├── DocumentLibrary.java    document import / clear / index statistics (called by UI, implemented by RAG)
+│   ├── EditorContext.java      editor context (file, source, selected code)
+│   ├── ImportResult.java       result of one import (indexed documents, chunk count, failure list)
+│   ├── KnowledgeBase.java      knowledge base retrieval interface
+│   ├── KnowledgeChunk.java     a chunk (content + source + page/scope + score)
+│   ├── LlmService.java         LLM call interface (including message / tool call data types)
+│   ├── ProgressListener.java   import progress callback (plain Java, no platform types)
+│   ├── Statistics.java         current index state (document list, chunk count, index time)
+│   ├── StreamListener.java     answer increment callback (plain Java, no platform types)
+│   └── Tool.java               tool interface the agent can call
+├── agent/                      agent core team: loop, system prompt, tool calls, LLM access
+│   ├── AgentLoop.java          AgentService implementation: retrieval → prompt → LLM → tool loop
+│   ├── SystemPromptBuilder.java system prompt (TA persona + citation rules + per-action instructions)
+│   ├── ToolRegistry.java       tool registration and invocation
+│   ├── ChatCompletionsLlmService.java  text generation and native tool call access
+│   ├── LlmSettings.java        local environment variable configuration
+│   └── LlmException.java       displayable configuration and call errors
+├── rag/                        RAG team: document processing, knowledge base, retrieval tool, import service
+│   ├── DocumentProcessor.java  course material parsing and chunking (keeps page/scope)
+│   ├── KnowledgeSearchTool.java the retrieval tool (implements api.Tool, used by agent tool calls)
+│   ├── RagDocumentLibrary.java DocumentLibrary implementation: import → chunk → index → write to disk
+│   └── RagKnowledgeBase.java   KnowledgeBase implementation (BM25 + optional embedding hybrid retrieval)
+├── ui/                         UI team: sidebar, context menu, intelligent action entry points
+│   ├── AgentRequests.java      the single agent call path: background execution, stream merging, cancellation, result text
+│   ├── AskCodeAction.java      editor context menu: ask about selected code
+│   ├── ChatHistoryStore.java   sidebar history persistence (.idea/mentorj-chat.json)
+│   ├── ChatMessage.java        display model of one question/answer or notice
+│   ├── ChatStyles.java         theme colors, fonts and card HTML rules
+│   ├── ChatTranscript.java     message card list: scrolling, stick to bottom, back to latest
+│   ├── CodeHighlighter.java    highlights code blocks with the IDE color scheme
+│   ├── CourseMaterialPanel.java          sidebar top: import / clear / index statistics
+│   ├── EditorContexts.java     editor context collection
+│   ├── GenerateCommitMessageAction.java  generate a Git commit message
+│   ├── GeneratePracticeAction.java       generate practice exercises (the creative intelligent action)
+│   ├── GenerateUnitTestAction.java       generate a unit test
+│   ├── MarkdownRenderer.java   Markdown → HTML (tables, code blocks, escaping)
+│   ├── MentorJChatPanel.java             sidebar conversation area: questions, message cards, selected code, history
+│   ├── MentorJToolWindowFactory.java     sidebar tool window assembly
+│   ├── MessageCard.java        one message card: user bubble / assistant card / error card
+│   ├── ResultDialog.java       result dialog: starts streaming on open, stoppable, copyable
+│   └── StagedDiff.java         collects git diff --cached as the staged changes
+├── MentorJBundle.java          message bundle accessor
+└── MentorJProjectService.java  assembly point: builds the knowledge base, tools, AgentService
 ```
 
-## 2. 契约清单（`edu.mentorj.api`）
+## 2. Contract list (`edu.mentorj.api`)
 
-### 2.1 数据类型
+### 2.1 Data types
 
-| 类型 | 字段 | 语义 |
+| Type | Fields | Meaning |
 | --- | --- | --- |
-| `AgentAction` | `ASK`、`GENERATE_UNIT_TEST`、`GENERATE_COMMIT_MESSAGE`、`CREATIVE` | 一次请求要做的事；`CREATIVE` 为创意智能操作（围绕选中代码生成课后练习题） |
-| `AgentRequest` | `action`、`userInput`、`editorContext`、`stagedDiff` | 见下方「各操作对字段的要求」 |
-| `AgentResponse` | `text`、`citations`、`generalKnowledgeOnly` | `text` 为回答正文；`citations` 为提供给 LLM 的知识块来源；`generalKnowledgeOnly` 为 `true` 表示没有检索到课程材料 |
-| `Citation` | `document`、`pageOrScope` | 一条来源引用：来源文档 + 页码或范围 |
-| `EditorContext` | `filePath`、`sourceCode`、`selectedCode` | 界面组采集；任何字段可为 `null`，表示不适用 / 未提供 |
-| `ImportResult` | `documents`、`chunks`、`failures` | 一次导入的结果：已索引的文档名、知识块总数、失败原因（每条形如 `文件名: 原因`） |
-| `KnowledgeChunk` | `text`、`document`、`pageOrScope`、`score` | 一个知识块及其来源，`score` 越大越相关 |
-| `ProgressListener` | `onProgress(done, total, message)` | 导入进度回调；在导入线程上被调用，界面组自行切回 EDT |
-| `Statistics` | `documents`、`chunks`、`indexedAt` | 索引现状；`indexedAt` 为 `null` 表示尚未导入 |
-| `StreamListener` | `onText(delta)`、`onToolCalls(toolNames)`、`isCancelled()` | 回答增量回调；在调用方后台线程执行，界面组自行切回 EDT |
+| `AgentAction` | `ASK`, `GENERATE_UNIT_TEST`, `GENERATE_COMMIT_MESSAGE`, `CREATIVE` | What a request does; `CREATIVE` is the creative intelligent action (generate practice exercises around the selected code) |
+| `AgentRequest` | `action`, `userInput`, `editorContext`, `stagedDiff` | See "Field requirements per action" below |
+| `AgentResponse` | `text`, `citations`, `generalKnowledgeOnly` | `text` is the answer body; `citations` are the sources of the chunks given to the LLM; `generalKnowledgeOnly` being `true` means no course material was retrieved |
+| `Citation` | `document`, `pageOrScope` | One source citation: source document + page or range |
+| `EditorContext` | `filePath`, `sourceCode`, `selectedCode` | Collected by the UI team; any field may be `null`, meaning not applicable / not provided |
+| `ImportResult` | `documents`, `chunks`, `failures` | Result of one import: indexed document names, total chunk count, failure reasons (each shaped `file name: reason`) |
+| `KnowledgeChunk` | `text`, `document`, `pageOrScope`, `score` | One chunk and its source; a larger `score` means more relevant |
+| `ProgressListener` | `onProgress(done, total, message)` | Import progress callback; called on the import thread, and the UI team switches back to the EDT itself |
+| `Statistics` | `documents`, `chunks`, `indexedAt` | Current index state; `indexedAt` is `null` before the first import |
+| `StreamListener` | `onText(delta)`, `onToolCalls(toolNames)`, `isCancelled()` | Answer increment callback; runs on the caller's background thread, and the UI team switches back to the EDT itself |
 
-各操作对 `AgentRequest` 字段的要求：
+Field requirements for `AgentRequest` per action:
 
-| 操作 | `userInput` | `editorContext` | `stagedDiff` |
+| Action | `userInput` | `editorContext` | `stagedDiff` |
 | --- | --- | --- | --- |
-| `ASK` | 用户的问题（必填） | 可选，右键提问时带选中代码 | 不用 |
-| `GENERATE_UNIT_TEST` | 自然语言描述的测试场景 / 需求（必填，来自文本输入框） | 必填，`selectedCode` 或 `sourceCode` 为选中的类 / 方法 | 不用 |
-| `GENERATE_COMMIT_MESSAGE` | 可空 | 不用 | 必填，staged 改动（git diff 格式），界面组采集 |
-| `CREATIVE` | 可选，练习的侧重点 / 难度 / 题型；为空时用选中代码检索并自行设计 | 必填，`selectedCode` 或 `sourceCode` 为出题对象 | 不用 |
+| `ASK` | the user's question (required) | optional; carries the selected code when asking from the context menu | unused |
+| `GENERATE_UNIT_TEST` | the test scenario / requirement in natural language (required, from the text input) | required; `selectedCode` or `sourceCode` is the selected class / method | unused |
+| `GENERATE_COMMIT_MESSAGE` | may be empty | unused | required; the staged changes (git diff format), collected by the UI team |
+| `CREATIVE` | optional, the focus / difficulty / exercise type; when empty the selected code drives retrieval and the design | required; `selectedCode` or `sourceCode` is the subject of the exercises | unused |
 
-### 2.2 接口
+### 2.2 Interfaces
 
 ```java
-// agent 核心组实现，界面组调用。同步阻塞，界面组必须在后台线程调用，禁止在 EDT 调用。
+// Implemented by the agent core team, called by the UI team. Blocks synchronously, so the UI team must
+// call it on a background thread and never on the EDT.
 public interface AgentService {
     AgentResponse respond(AgentRequest request);
-    // 带增量回调的版本；默认实现退化为完成后回调一次正文，旧实现无需修改。
+    // The variant with an increment callback; the default implementation degrades to one callback with
+    // the whole body once generation finishes, so existing implementations need no change.
     default AgentResponse respond(AgentRequest request, StreamListener listener) {
         AgentResponse response = respond(request);
         if (!listener.isCancelled() && response.text() != null) {
@@ -119,30 +121,34 @@ public interface AgentService {
     }
 }
 
-// 回答增量回调。纯 JDK 类型；页面更新由界面组自行切回 EDT。
+// Answer increment callback. Plain JDK types; the UI team switches back to the EDT to update the page.
 public interface StreamListener {
     void onText(String delta);
-    default void onToolCalls(List<String> toolNames) {}  // 本轮以工具调用结束，此前增量不属于最终回答
-    default boolean isCancelled() { return false; }      // 每个增量、每次工具执行前轮询
+    default void onToolCalls(List<String> toolNames) {}  // this round ended in tool calls, so earlier increments are not the final answer
+
+    default boolean isCancelled() { return false; }      // polled before every increment and every tool execution
 }
 
-// RAG 组实现，agent 核心组调用。按 score 降序返回，无结果返回空表，不返回 null。
+// Implemented by the RAG team, called by the agent core team. Returns chunks in descending score order,
+// an empty list when nothing matches, never null.
 public interface KnowledgeBase {
     List<KnowledgeChunk> retrieve(String query, int topK);
 }
 
-// RAG 组实现，界面组调用：导入课程材料、清空索引、查询索引现状。
-// 阻塞方法，界面组必须在后台线程调用；与 retrieve 可并发。
+// Implemented by the RAG team, called by the UI team: import course material, clear the index, query its state.
+// Blocking methods, so the UI team must call them on a background thread; may run concurrently with retrieve.
 public interface DocumentLibrary {
     ImportResult importDocuments(List<Path> documents, ProgressListener progress);
     void clear();
     Statistics statistics();
 }
 
-// agent 核心组实现真实版本（LLM 接入）；Request 携带系统提示词、消息与可用工具。
+// The real implementation (LLM access) comes from the agent core team; Request carries the system prompt,
+// the messages and the available tools.
 public interface LlmService {
     Result complete(Request request);
-    // 带监听器时按服务端支持流式返回；默认实现退化为完成后回调一次正文。
+    // With a listener it streams as far as the server supports; the default implementation degrades to one
+    // callback with the whole body once generation finishes.
     default Result complete(Request request, StreamListener listener) {
         Result result = complete(request);
         if (!listener.isCancelled() && result.toolCalls().isEmpty() && result.content() != null) {
@@ -150,94 +156,94 @@ public interface LlmService {
         }
         return result;
     }
-    // 嵌套数据类型：Message（role: system/user/assistant/tool）、ToolSpec、ToolCall、Request、Result
+    // Nested data types: Message (role: system/user/assistant/tool), ToolSpec, ToolCall, Request, Result
 }
 
-// 各组都可以提供工具实现，注册进 ToolRegistry 后由 agent 循环调用。
+// Any team can supply tool implementations; once registered in ToolRegistry the agent loop calls them.
 public interface Tool {
-    LlmService.ToolSpec spec();          // 工具名、描述、参数 JSON Schema
-    String execute(String argumentsJson); // 返回文本结果，回填给 LLM
-    // 默认包装 execute，旧实现无需修改；检索工具覆盖此方法提供真实来源。
+    LlmService.ToolSpec spec();          // tool name, description, parameter JSON Schema
+    String execute(String argumentsJson); // returns the text result fed back to the LLM
+    // Wraps execute by default, so old implementations need no change; retrieval tools override it to give real sources.
     default ExecutionResult executeWithSources(String argumentsJson);
     record ExecutionResult(String text, List<Citation> citations) {}
 }
 ```
 
-`importDocuments` 的语义是**全量重建**：清空现有索引 → 逐个解析传入的文档 → 切块 → 建索引 → 落盘。只支持 PDF；不支持的格式与解析失败都进 `failures`，不抛异常、不影响其余文档。`progress` 可为 `null`。索引持久化在项目的 `.idea/mentorj-index.json`，重启 IDE 后自动加载，不要求原文档仍然存在。
+`importDocuments` means a **full rebuild**: clear the existing index → parse each given document → chunk → build the index → write to disk. Only PDFs are supported; unsupported formats and parse failures all land in `failures`, without throwing and without affecting the other documents. `progress` may be `null`. The index is persisted in the project's `.idea/mentorj-index.json`, loaded automatically after an IDE restart, and does not require the original documents to still exist.
 
-`DocumentLibrary` 由 RAG 组新增，经三方确认后界面组方可依赖。
+`DocumentLibrary` was added by the RAG team, and the UI team may depend on it only after all three teams agree.
 
-流式回调的语义：
+Semantics of the streaming callbacks:
 
-- `onText` 的增量按顺序拼接等于最终 `AgentResponse.text()` / `Result.content()`；实现可以一次性回调全文。
-- `onToolCalls` 表示本轮以工具调用结束：此前收到的正文增量不是最终回答，界面应清空并显示工具状态。
-  工具名按调用顺序给出，仅用于展示，不参与协议。
-- `isCancelled()` 至少每个增量、每次工具执行前轮询一次；返回 `true` 后实现尽快关闭连接，
-  本次请求以可展示的“已取消”错误收尾，不返回半成品回答。
-- 回调发生在调用方的后台线程上；禁止在回调里操作 Swing。
-- 流式失败（网络中断、空闲超时、格式错误、被过滤）与一次性请求返回同样的可展示错误，不泄露响应正文或密钥。
+- Concatenating the `onText` increments in order equals the final `AgentResponse.text()` / `Result.content()`; an implementation may call back once with the whole text.
+- `onToolCalls` means this round ended in tool calls: the increments received so far are not the final answer, so the UI should clear them and show the tool status.
+  Tool names are given in call order, for display only, and are not part of the protocol.
+- `isCancelled()` is polled at least before every increment and before every tool execution; once it returns `true` the implementation closes the connection as soon as possible,
+  and the request ends with a displayable "cancelled" error instead of a half-finished answer.
+- Callbacks happen on the caller's background thread; touching Swing inside a callback is forbidden.
+- A streaming failure (connection drop, idle timeout, malformed data, filtered) produces the same displayable error as a one-shot request, without leaking the response body or the key.
 
-### 2.3 本地 Agent 分支的兼容扩展（供三方联调评审）
+### 2.3 Compatibility extensions on the local agent branch (for joint review)
 
-本分支按 Agent 完善任务实现以下增量，保留旧构造器和工具方法；合并共享契约前仍需三方评审。
+This branch implements the following additions for the agent completion task while keeping the old constructors and tool methods; all three teams still need to review before the shared contract is merged.
 
-- `Message(role, content, toolCalls, toolCallId, reasoningContent)`：assistant 原样保留调用列表和
-  服务返回的 `reasoning_content`；tool 消息用 `toolCallId` 对应调用。普通消息继续使用双参数构造器。
-  使用 `Message.assistant(Result)` 和 `Message.tool(callId, text)` 回填完整协议数据。
-  旧 `Message.tool(text)` 保留源码兼容，但缺少 ID，真实适配器会拒绝发送。
-- `Result(content, toolCalls, reasoningContent)`：保留双参数构造器；无工具调用必须有非空正文。
-  `reasoningContent` 仅供协议回填，不展示给用户。
-- `Request`、`Message`、`Result`、`ExecutionResult` 对列表取不可变副本，列表不得为 null。
-- `Tool.executeWithSources` 返回正文及结构化来源；仅返回字符串的旧工具继续工作，但不产生引用。
-  工具负责校验自己的参数字段。失败与无结果的输出不携带来源。
-- 最终 `AgentResponse.citations` 合并初次检索及成功工具检索提供给模型的来源，按出现顺序去重。
-  不从模型生成的文字提取来源，不伪造文档或页码。错误回答不附课程引用或通用知识声明。
-- 文本回答因长度截断但已有正文时，`text` 保留正文并在开头标注“回答未完成”，仍附已提供的来源。
-  无正文或存在被截断的工具调用时返回错误说明，且不执行该轮工具；不改变共享数据类型。
-- Agent 每次请求独立保存上下文，最多执行 3 轮工具，每轮最多 8 次调用，最多请求模型 4 次。
-  最后一轮不再提供工具。提交消息生成仅使用 staged diff 和用户要求，不检索课程材料。
-  用户上下文限 60,000 字符，累计对话限 120,000 字符，单次工具输出限 20,000 字符；超限明确报错。
-  这些是本插件的资源上限，不代表服务商 token 上限。
+- `Message(role, content, toolCalls, toolCallId, reasoningContent)`: an assistant message keeps the call list and the
+  `reasoning_content` the service returned exactly as given; a tool message maps back to its call via `toolCallId`. Ordinary messages keep using the two-argument constructor.
+  Use `Message.assistant(Result)` and `Message.tool(callId, text)` to fill in the complete protocol data.
+  The old `Message.tool(text)` stays for source compatibility, but it lacks an ID and a real adapter refuses to send it.
+- `Result(content, toolCalls, reasoningContent)`: the two-argument constructor is kept; a result without tool calls must have a non-empty body.
+  `reasoningContent` is only for protocol round trips and is never shown to the user.
+- `Request`, `Message`, `Result` and `ExecutionResult` take immutable copies of their lists, and the lists may not be null.
+- `Tool.executeWithSources` returns the body plus structured sources; an old tool that returns only a string keeps working but produces no citations.
+  Each tool validates its own parameter fields. Output for a failure or an empty result carries no sources.
+- The final `AgentResponse.citations` merges the sources given to the model from the initial retrieval and from successful tool retrievals, deduplicated in order of appearance.
+  Sources are never extracted from text the model generated, and documents or page numbers are never invented. An error answer carries no course citations and no general knowledge notice.
+- When a text answer is truncated by the length limit but a body already exists, `text` keeps the body and prefixes an "Answer incomplete" notice, still with the sources already provided.
+  With no body, or with a truncated tool call, it returns an error message and does not execute that round's tools; the shared data types do not change.
+- The agent keeps context per request, runs at most 3 tool rounds with at most 8 calls each and at most 4 model requests.
+  The last round offers no tools. Commit message generation uses only the staged diff and the user's requirements, and retrieves no course material.
+  User context is limited to 60,000 characters, the accumulated conversation to 120,000, and a single tool output to 20,000; exceeding a limit is an explicit error.
+  These are this plugin's resource limits and not the provider's token limits.
 
-## 3. 关键数据流
+## 3. Key data flows
 
-0. **导入课程材料**：界面组选文件 → `DocumentLibrary.importDocuments(paths, progress)`（后台线程）→ RAG 组解析 PDF、按页切块、建索引、写 `.idea/mentorj-index.json` → 返回 `ImportResult` → 界面组展示已索引文档数 / 知识块数与失败清单。
-1. **侧边栏问答**：界面组收问题 → `AgentService.respond(ASK, listener)` → agent 核心组：`KnowledgeBase.retrieve` 检索知识块 → 组装系统提示词（含引用规则）与上下文 → `LlmService`（必要时走工具循环）→ `AgentResponse` → 界面组展示正文 + 引用 / 免责声明。
-2. **右键就选中代码提问**：界面组用 `EditorContexts` 采集 `EditorContext` → 同 1（`ASK`）。
-3. **单测生成**：界面组弹文本输入框收集自然语言场景 → `respond(GENERATE_UNIT_TEST)` → agent 核心组按场景 + 上下文代码生成 JUnit 测试类 → 界面组展示。
-4. **commit message 生成**：界面组采集 staged diff → `respond(GENERATE_COMMIT_MESSAGE)` → agent 核心组分析语义意图并按 Conventional Commits 生成消息 → 界面组展示。
-5. **练习题生成（创意动作）**：界面组弹出可留空的文本输入框收集侧重 / 难度 → `respond(CREATIVE)` → agent 核心组用选中代码或用户输入作检索查询，结合课程材料列出知识点并出 3 道题与参考答案 → 界面组展示。
+0. **Importing course material**: the UI team picks files → `DocumentLibrary.importDocuments(paths, progress)` (background thread) → the RAG team parses the PDFs, chunks by page, builds the index, writes `.idea/mentorj-index.json` → returns `ImportResult` → the UI team shows the indexed document count, the chunk count and the failure list.
+1. **Sidebar Q&A**: the UI team collects the question → `AgentService.respond(ASK, listener)` → the agent core team retrieves chunks with `KnowledgeBase.retrieve` → assembles the system prompt (with citation rules) and the context → `LlmService` (running the tool loop when needed) → `AgentResponse` → the UI team shows the body plus citations / disclaimer.
+2. **Asking about selected code from the context menu**: the UI team collects an `EditorContext` with `EditorContexts` → same as 1 (`ASK`).
+3. **Unit test generation**: the UI team shows a text input to collect the natural-language scenario → `respond(GENERATE_UNIT_TEST)` → the agent core team generates a JUnit test class from the scenario and the context code → the UI team shows it.
+4. **Commit message generation**: the UI team collects the staged diff → `respond(GENERATE_COMMIT_MESSAGE)` → the agent core team analyzes the intent and writes a Conventional Commits message → the UI team shows it.
+5. **Practice exercise generation (the creative action)**: the UI team shows a text input that may stay empty to collect the focus / difficulty → `respond(CREATIVE)` → the agent core team uses the selected code or the user input as the retrieval query, lists the concepts from the course material and writes 3 exercises with reference answers → the UI team shows them.
 
-智能操作分工：**界面组**负责触发入口、文本输入框、上下文采集与结果展示；**agent 核心组**负责生成提示词与生成调用；**RAG 和其他组**不参与智能操作本身。
+Division of labor for the intelligent actions: the **UI team** owns the trigger entry points, the text inputs, context collection and result display; the **agent core team** owns the prompts and the generation calls; the **RAG and other teams** do not take part in the actions themselves.
 
-## 4. 全局规则（实现时必须遵守）
+## 4. Global rules (mandatory when implementing)
 
-- **引用与免责声明**：检索到课程材料时 `citations` 必须给出 `document` + `pageOrScope`；检索不到时 `generalKnowledgeOnly` 必须为 `true`，界面组必须显式声明“回答仅基于通用知识，未引用课程材料”（如 “Response is based on general knowledge; no specific course material is referenced”）。系统提示词里同步约束 LLM 行文引用来源。
-- **线程**：`AgentService.respond` 可能长时间阻塞，界面组一律放后台线程执行，只在更新 UI 时回到 EDT；`StreamListener` 的回调也在同一后台线程，界面组自行合并后切回 EDT。
-- **空值**：契约里的 `null` 只表示“不适用 / 未提供”；`List` 一律返回空表而不是 `null`。
-- **无索引**：没导入课程材料时 `retrieve` 返回空表，`AgentResponse.generalKnowledgeOnly` 为 `true`，界面组展示通用知识声明。
-- **文案**：所有 UI 文案进 `src/main/resources/messages/MentorJBundle.properties`，用 `MentorJBundle.message(key, ...)` 取，不硬编码。
-- **注册**：扩展点 / action / 服务注册在 `plugin.xml`（或平台注解），每条注册加注释说明用途。
-- **契约变更流程**：先改本文件 → 三方确认 → 再改代码 → 同一提交或紧随的提交里保持文档与实现一致。
+- **Citations and disclaimer**: when course material was retrieved, `citations` must give `document` + `pageOrScope`; when nothing was retrieved, `generalKnowledgeOnly` must be `true` and the UI team must state explicitly that the answer is based on general knowledge only, without cited course material (for example, "Response is based on general knowledge; no specific course material is referenced"). The system prompt constrains the LLM's sourcing in the same way.
+- **Threading**: `AgentService.respond` may block for a long time, so the UI team always runs it on a background thread and returns to the EDT only to update the UI; `StreamListener` callbacks arrive on that same background thread, and the UI team merges them and switches back to the EDT itself.
+- **Nulls**: in the contract `null` only means "not applicable / not provided"; a `List` is always returned empty instead of `null`.
+- **No index**: before any course material is imported, `retrieve` returns an empty list, `AgentResponse.generalKnowledgeOnly` is `true`, and the UI team shows the general knowledge notice.
+- **Text**: all UI text goes into `src/main/resources/messages/MentorJBundle.properties`, retrieved via `MentorJBundle.message(key, ...)`, never hardcoded.
+- **Registration**: extension points, actions and services are registered in `plugin.xml` (or with platform annotations), with a comment on each registration saying what it is for.
+- **Contract change process**: change this file first → all three teams agree → then change the code → keep the document and the implementation consistent in the same commit or the one immediately after.
 
-## 5. 联调检查单
+## 5. Joint integration checklist
 
-- [ ] `./gradlew build` 通过（改动 plugin.xml 或依赖时加跑 `./gradlew verifyPlugin`）
-- [ ] `./gradlew runIde`：侧边栏能看到 MentorJ tool window；编辑器右键菜单有三个智能操作入口（就选中代码提问 / 生成单元测试 / 生成练习题）
-- [ ] 提问流程：有问题 + 有检索结果时展示引用（文档 + 页码/范围）；无检索结果时展示通用知识声明
-- [ ] 流式：正文增量拼接等于最终回答；工具轮次清空此前文字并显示工具状态；取消在 1 秒内停止且保留已收到内容
-- [ ] 导入流程：导入课件后返回统计；重启 IDE 后仍能检索到带页码的引用；导入非 PDF 文件时展示失败原因而非静默失败
-- [ ] 三个智能操作的请求字段符合「各操作对字段的要求」
+- [ ] `./gradlew build` passes (add `./gradlew verifyPlugin` when plugin.xml or dependencies changed)
+- [ ] `./gradlew runIde`: the MentorJ tool window appears in the sidebar; the editor context menu has the three intelligent action entries (ask about selected code / generate unit test / generate practice exercises)
+- [ ] Question flow: with a question and retrieval results, citations are shown (document + page/scope); without retrieval results, the general knowledge notice is shown
+- [ ] Streaming: concatenated increments equal the final answer; a tool round clears the earlier text and shows tool status; cancelling stops within 1 second and keeps what was received
+- [ ] Import flow: importing decks returns statistics; after an IDE restart, citations with page numbers are still retrievable; importing a non-PDF file shows the failure reason instead of failing silently
+- [ ] The request fields of the three intelligent actions match "Field requirements per action"
 
-## 6. 待定事项
+## 6. Open items
 
-- 创意智能操作（`CREATIVE`）：已定为“围绕选中代码生成课后练习题”。先列出代码涉及的课程知识点，
-  再由易到难出 3 道题并给出参考答案；`userInput` 可空，为空时用选中代码（或整个文件）作为检索查询。
-  UI 入口是编辑器右键的「生成练习题」。
-- LLM 服务供应商：同济 AI 服务平台，默认 Base URL 为 `https://agi.tongji.edu.cn/v1`，
-  模型为 `DeepSeek-V4.1-Flash`。API Key 通过本地环境变量配置，地址和模型可覆盖，见 README。
-- 原生工具调用：本地适配器与循环已实现兼容协议，使用模拟 HTTP 服务验证；
-  同济网关对所选模型的工具支持仍需带真实 Key 联调，不能由文本调用示例推定。
-- 流式输出：已通过 `StreamListener` 接入，文本增量与流式工具调用均在本地模拟服务验证；
-  同济网关的 `stream: true` 兼容性仍需带真实 Key 联调，失败时可用 `MENTORJ_LLM_STREAM=false` 回退。
-- 检索方案（已定）：BM25 词法检索 + embedding 语义检索，两路排名用 RRF 融合，并有相关性闸门在语料未覆盖时返回空表；embedding 走同济 AGI 的 `Qwen3-Embedding`（OpenAI 兼容 `/v1/embeddings`，512 维），key 从环境变量 `MENTORJ_LLM_API_KEY` 读取。embedding 不可用时自动降级为纯 BM25，引用仍然有效。
+- Creative intelligent action (`CREATIVE`): settled as "generate practice exercises around the selected code". It first lists the course concepts the code involves,
+  then writes 3 exercises of increasing difficulty with reference answers; `userInput` may be empty, and when it is, the selected code (or the whole file) is the retrieval query.
+  The UI entry point is the "Generate Practice Exercises" editor context menu item.
+- LLM service provider: the Tongji AI service platform, with the default Base URL `https://agi.tongji.edu.cn/v1`
+  and the model `DeepSeek-V4.1-Flash`. The API key comes from a local environment variable; the URL and model can be overridden, see the README.
+- Native tool calling: the local adapter and loop implement a compatible protocol and are verified with a mock HTTP service;
+  whether the Tongji gateway supports tools for the chosen model still needs a joint test with a real key, and a text example cannot settle it.
+- Streaming output: wired through `StreamListener`, and both text increments and streaming tool calls are verified against a local mock service;
+  the Tongji gateway's `stream: true` compatibility still needs a joint test with a real key, and `MENTORJ_LLM_STREAM=false` is the fallback when it fails.
+- Retrieval approach (settled): BM25 lexical retrieval plus embedding semantic retrieval, with the two rankings fused by RRF and a relevance gate that returns an empty list when the corpus does not cover the question; embeddings come from Tongji AGI's `Qwen3-Embedding` (OpenAI-compatible `/v1/embeddings`, 512 dimensions) with the key read from the `MENTORJ_LLM_API_KEY` environment variable. When embeddings are unavailable it degrades to pure BM25 automatically and citations stay valid.

@@ -1,68 +1,68 @@
-# MentorJ RAG 设计
+# MentorJ RAG design
 
-本文件记录 RAG 组的设计决策与实测数据，供实现、评审与报告撰写共用。契约部分以 [API.md](../API.md) 为准，此处只讲实现怎么落地以及为什么这样选。
+This document records the RAG team's design decisions and measured data, shared by implementation, review and report writing. The contract lives in [API.md](../API.md); this file covers only how the implementation lands and why the choices were made.
 
-## 1. 语料与边界
+## 1. Corpus and boundaries
 
-| 项 | 值 |
+| Item | Value |
 | --- | --- |
-| 语料 | `assets` 下 10 个 PDF（Lec-0 ~ Lec-5 + 作业说明） |
-| 规模 | 203 页、约 12.7 万字符（≈3 万 token） |
-| 文本层 | 均为可提取文本 PDF，`pdftotext` / PDFBox 输出干净；页脚印的页码与 PDF 页序一致 |
-| 支持格式 | **仅 PDF**。其余格式进 `ImportResult.failures`，不静默丢弃 |
+| Corpus | 10 PDFs under `assets` (Lec-0 to Lec-5 plus the assignment brief) |
+| Size | 203 pages, about 127k characters (roughly 30k tokens) |
+| Text layer | All are PDFs with extractable text, and `pdftotext` / PDFBox output is clean; the page number printed in the footer matches the PDF page order |
+| Supported formats | **PDF only**. Other formats land in `ImportResult.failures` and are never dropped silently |
 
-语料规模决定了设计取向：整个知识库能塞进一次上下文，因此检索的价值不在压缩信息量，而在**可解释、可引用、可评测**。不引入向量数据库，索引就是一个 JSON 文件。
+The corpus size drives the design: the whole knowledge base fits in one context, so retrieval's value is not compressing information but being **explainable, citable and evaluable**. There is no vector database; the index is a single JSON file.
 
-> 不引入向量数据库：数据规模小，且单用户，暴力检索需要的时间远小于查询向量化时网络的耗时。引入向量数据库需要处理更复杂的依赖的同时，也没有带来性能的提升。
+> Why no vector database: the data is small and single-user, and a brute-force scan takes far less time than vectorizing the query over the network. A vector database would add more complex dependencies without any performance gain.
 
-## 2. 处理管线
+## 2. Processing pipeline
 
 ```
-PDF → 逐页抽文本 → 页脚/页眉清洗 → 页级切块（超长页二次切分）
-    → 分词（BM25 倒排） → embedding（可降级） → 写入 .idea/mentorj-index.json
+PDF → extract text page by page → clean footers/headers → chunk by page (split overlong pages again)
+    → tokenize (BM25 inverted index) → embed (degradable) → write .idea/mentorj-index.json
 ```
 
-### 2.1 解析
+### 2.1 Parsing
 
-- 依赖：`org.apache.tika:tika-core` + `org.apache.tika:tika-parser-pdf-module`（Tika 4.1.0）。为什么只引 PDF 模块：全量 `tika-parsers-standard-package` 会拉进几十个传递依赖，与 IntelliJ 平台自带库（jackson、commons-*）冲突风险高，而本项目只吃 PDF。
-- **分工（实测后修正）**：Tika 负责媒体类型检测（非 PDF 直接失败，报清晰原因）；文本抽取逐页走 PDFBox。原因：Tika 4 的 `PDFParser` 输出一段无页边界的纯文本（`BodyContentHandler` 拿到的是拼接结果），拿不到“第 N 页”这个信息，而页码正是引用的全部前提。PDFBox 本来就作为 Tika 自己的依赖随之引入（同一个引擎），不额外增加依赖面。
-- 页码即 PDF 页序（与课件页脚一致，验收时可翻页核对）。
-- 已提交的测试资料：`../src/test/resources/documents/two-pages.pdf`（Ghostscript 生成的 2 页已知文本），由 `PdfExtractionTest` 断言检测、页数与逐页文本不串页。
+- Dependencies: `org.apache.tika:tika-core` + `org.apache.tika:tika-parser-pdf-module` (Tika 4.1.0). Why only the PDF module: the full `tika-parsers-standard-package` pulls in dozens of transitive dependencies with a high risk of clashing with libraries the IntelliJ platform already ships (jackson, commons-*), while this project only consumes PDFs.
+- **Split of work (revised after measuring)**: Tika detects the media type (a non-PDF fails immediately with a clear reason); text extraction goes page by page through PDFBox. The reason: Tika 4's `PDFParser` emits one plain-text run without page boundaries (what `BodyContentHandler` receives is the concatenation), so "page N" is unavailable, and the page number is the entire premise of a citation. PDFBox already comes in as a dependency of Tika itself (the same engine), so no new dependency surface is added.
+- The page number is the PDF page order (matching the slide footer, so a reviewer can flip pages and check).
+- Committed test data: `../src/test/resources/documents/two-pages.pdf` (two pages of known text produced by Ghostscript), which `PdfExtractionTest` asserts for detection, page count and per-page text never bleeding across pages.
 
-### 2.2 切块规格
+### 2.2 Chunking specification
 
-- **一页一块**是默认粒度：引用天然精确到页，且不需要在页内猜章节边界。
-- 单页文本超过 **800 字符**时页内二次切分：按行累积到上限；单行本身超长则按字符硬切。相邻块把上一块的**最后一行**带进下一块（该行不超过 120 字符时），避免句子被切断。
-- `pageOrScope` 形态：`p.12`。因为切块以页为界，一个知识块永不跨页，所以不会出现页码范围；`p.12–13` 只留给将来“合并小页”的改动。
-- 页码清洗：只删与当前页号相同的数字，有三种排布，都已在实际课件中出现：
+- **One chunk per page** is the default granularity: citations are precise to the page by construction, with no need to guess section boundaries inside a page.
+- A page whose text exceeds **800 characters** is split again inside the page: lines accumulate up to the limit; a single line longer than the limit is cut hard by character count. Adjacent chunks carry the **last line** of the previous chunk into the next one (when that line is at most 120 characters), so sentences are not cut apart.
+- `pageOrScope` shape: `p.12`. Because chunking respects page boundaries, a chunk never spans pages, so no page range appears; `p.12-13` is reserved for a future "merge small pages" change.
+- Page number cleaning: only a number equal to the current page number is removed, in three layouts, all of which occur in the real decks:
 
-  | 排布 | 实例 | 处理 |
+  | Layout | Example | Handling |
   | --- | --- | --- |
-  | 独占一行 | `3` | 删整行 |
-  | 粘在标题前 | `2Overview` | 删数字，保留 `Overview` |
-  | 跟在页脚后 | `Tools and Scenarios 6` | 删数字，保留文字 |
+  | Alone on a line | `3` | Remove the whole line |
+  | Glued to the front of a heading | `2Overview` | Remove the number, keep `Overview` |
+  | After a footer | `Tools and Scenarios 6` | Remove the number, keep the text |
 
-  正文里的序号不动：Lec-4 第 12 页表格里的步骤编号 `1`–`6` 与页号不同，原样保留。
-- **不删重复出现的整行**（跑动的页眉/章节页脚）。本来以为可以按“出现在多数页上”来删，但 Lec-3.4 有 4 处重复的 `}`（代码块），按频率删会把代码删坏；`Call Structure Context Tools Loop Verify` 这类页脚重复 26/44 页，对 BM25 影响有限（文档频率高，idf 自然低）。收益不抵风险，所以不做。
-- 清洗与切块都是纯字符串函数，不依赖课件即可测试（`DocumentProcessorTest`）。
-- 全量实测（`assets` 下 10 个 PDF）：**203 页 → 218 块**，最长块 794 字符（未越 800），页码零残留。
-- 已知损失：PDF 文本层不保留代码缩进，代码示例会被压平；检索仍可用，但不能拿 chunk 当可编译代码。
+  List numbers in the body are left alone: the step numbers `1`-`6` in the Lec-4 page 12 table differ from the page number and are kept as they are.
+- **Repeated whole lines are not removed** (running headers / section footers). It seemed reasonable to delete lines that appear on most pages, but Lec-3.4 has 4 repeated `}` lines (code blocks) and frequency-based deletion would corrupt the code; a footer like `Call Structure Context Tools Loop Verify` repeats on 26 of 44 pages and has limited effect on BM25 (high document frequency means low idf naturally). The gain does not cover the risk, so it is not done.
+- Cleaning and chunking are pure string functions, testable without the decks (`DocumentProcessorTest`).
+- Full measurement (the 10 PDFs under `assets`): **203 pages → 218 chunks**, longest chunk 794 characters (under 800), zero page number residue.
+- Known loss: the PDF text layer does not preserve code indentation, so code samples come out flattened; retrieval still works, but a chunk cannot be used as compilable code.
 
-### 2.3 分词
+### 2.3 Tokenization
 
-供 BM25 使用，纯本地、零依赖（`Tokenizer`）：
+Used by BM25, purely local and dependency-free (`Tokenizer`):
 
-- 小写化，按非字母数字切分（`_`、`.`、`()` 天然成为边界，`snake_case` 因此自动拆开）；
-- camelCase 拆成子词（`getUserId` → `get`、`user`、`id`），Java 术语才不会整词失配；
-- **拆开后同时保留整词**（`getUserId` 额外索引 `getuserid`）。不这么做的话 `@BeforeEach` 会被拆成 `before`、`each` 两个停用词，整词彻底丢失 —— 实测中这条让“What does @BeforeEach do?”从零命中变成正确命中 Lec-3.4 p.4；
-- 去英文停用词（约 90 个）与单字符拉丁词；
-- CJK 字符按单字 + 相邻二元组（bigram）入索引，保证中文查询不会因分词缺失而零命中。
+- Lowercase, split on non-alphanumerics (`_`, `.`, `()` are boundaries by nature, so `snake_case` splits automatically);
+- Split camelCase into subwords (`getUserId` → `get`, `user`, `id`), so Java terms do not fail to match as whole words;
+- **Keep the whole word as well as the parts** (`getUserId` also indexes `getuserid`). Without this, `@BeforeEach` splits into `before` and `each`, both stopwords, and the whole term is lost — in practice this took "What does @BeforeEach do?" from zero hits to a correct hit on Lec-3.4 p.4;
+- Drop English stopwords (about 90) and single-character Latin words;
+- Index CJK characters as unigrams plus adjacent bigrams, so a Chinese query never misses everything just because tokenization cannot cut it.
 
-停用词只对拉丁词生效，代码标识符与中文不受影响。
+Stopwords apply to Latin words only; code identifiers and Chinese are unaffected.
 
-## 3. 索引结构
+## 3. Index structure
 
-`<project>/.idea/mentorj-index.json`，UTF-8，`version` 用于将来升级时丢弃旧索引：
+`<project>/.idea/mentorj-index.json`, UTF-8, with `version` so a future upgrade can discard old indexes:
 
 ```json
 {
@@ -74,165 +74,163 @@ PDF → 逐页抽文本 → 页脚/页眉清洗 → 页级切块（超长页二�
 }
 ```
 
-- **只存知识块**：倒排表、文档清单、页数都从 `chunks` 现算，不落盘。全课程材料只有两百多个块，启动重建倒排是毫秒级；存下来就要维护一份可能和知识块不一致的副本。
-- 全量 218 块实测 **115 KB**。
-- 向量（512 维）接入后作为 `chunks[].vector` 字段加进来，`version` 升到 2。向量存 512 维（`dimensions` 参数做 MRL 截断）：2560 维会让文件大一个量级，对几百个块的检索质量几乎无感。
-- 索引按项目存放：换项目即换知识库；`../.idea` 已被 ignore，不随仓库分发。
-- 失效策略：`importDocuments` 是全量重建，不做增量与自动重扫。启动时只加载 JSON，不校验原文件是否还在（用户可能换了机器），需要更新就重新导入一次。`version` 不匹配时直接丢弃旧索引，不做迁移。
+- **Only chunks are stored**: the inverted index, the document list and the page counts are all derived from `chunks`, not persisted. The whole course material is only a bit over two hundred chunks, so rebuilding the inverted index at startup takes milliseconds; persisting it would mean maintaining a copy that can drift out of step with the chunks.
+- The full 218 chunks measure **115 KB**.
+- Vectors (512 dimensions) join as a `chunks[].vector` field and `version` moves to 2. Vectors are stored at 512 dimensions (the `dimensions` parameter does MRL truncation): 2560 dimensions would make the file an order of magnitude larger with almost no effect on retrieval quality across a few hundred chunks.
+- The index lives per project: another project means another knowledge base; `../.idea` is already ignored, so it never ships with the repo.
+- Invalidation: `importDocuments` is a full rebuild with no incremental update and no automatic rescan. Startup only loads the JSON and does not check whether the original files still exist (the user may have changed machines); re-import when an update is needed. A mismatched `version` discards the old index instead of migrating it.
 
-## 4. 检索
+## 4. Retrieval
 
-混合检索，两路排名融合（`RagKnowledgeBase`）：
+Hybrid retrieval that fuses two rankings (`RagKnowledgeBase`):
 
-1. **BM25**（`k1=1.2`、`b=0.75`）在 chunk 文本上检索，纯内存倒排表；得分为 0 的块不返回 —— 否则调用方会把无关材料当成引用。
-2. **Embedding** 余弦相似度（向量已归一化，等价于点积）。
-3. **RRF 融合**：`Σ 1 / (60 + rank_i)`，每路各取前 20 名参与融合，最终取 topK。
-4. **降级**：没有 `MENTORJ_LLM_API_KEY`、网络失败或索引里没有向量时，只用 BM25。
+1. **BM25** (`k1=1.2`, `b=0.75`) over the chunk text with a pure in-memory inverted index; chunks scoring 0 are not returned, since the caller would otherwise cite irrelevant material.
+2. **Embedding** cosine similarity (vectors are normalized, so this equals the dot product).
+3. **RRF fusion**: `Σ 1 / (60 + rank_i)`, taking the top 20 from each ranking into the fusion and returning topK overall.
+4. **Degradation**: with no `MENTORJ_LLM_API_KEY`, on a network failure, or with no vectors in the index, BM25 only.
 
-同分处理：按块序号排序兜底，保证输出稳定可测。
+Ties break on chunk index, which keeps the output stable and testable.
 
-### 4.1 相关性闸门
+### 4.1 Relevance gate
 
-没有闸门时，只要有一个词命中就返回结果，于是“课件里没有的内容”也会带上一条假引用——而作业明确要求检索不到时声明“仅通用知识”。闸门要回答的是：**这批课件到底讲没讲这个问题。**
+Without a gate, a single matching term returns results, so content the slides never cover still picks up a fake citation — while the assignment explicitly requires stating "general knowledge only" when retrieval finds nothing. The gate has to answer: **do these decks actually cover this question?**
 
-**为什么不用绝对余弦阈值。** 一开始卡的是“余弦 ≥ 0.50”，实测被措辞直接推过线：同一句问题 `How do I read a file line by line?` 得分 0.545（通过），全小写版 `how do I read a file line by line` 只有 0.423（拒绝）。同一问题的五种写法彼此余弦只有 0.91–0.98，这种漂移和阈值间距一样大，绝对阈值不可靠。
+**Why not an absolute cosine threshold.** The first attempt gated on "cosine ≥ 0.50", and in practice a wording change alone pushed queries across it: `How do I read a file line by line?` scores 0.545 (passes) while the all-lowercase `how do I read a file line by line` scores only 0.423 (rejected). Five wordings of the same question sit only 0.91-0.98 apart, which is as large as the gap to the threshold, so an absolute threshold is unreliable.
 
-**最终规则**（218 块、18 条查询量出来的）：
+**The final rules** (measured over 218 chunks and 18 queries):
 
-| 信号 | 作用 | 阈值 |
+| Signal | Purpose | Threshold |
 | --- | --- | --- |
-| `max(余弦) − median(余弦)` | 语料里有没有一块明显紧扣问题 | ≥ 0.30 |
-| `max(余弦)` | 整体都相关时直接定论 | ≥ 0.60 |
-| 单块余弦 | 剪掉榜首之后的跑题块，不进引用 | ≥ 0.45 |
-| 查询词覆盖率（无向量时的退路） | 词法兜底 | ≥ 0.50 |
+| `max(cosine) − median(cosine)` | whether one chunk is clearly on point | ≥ 0.30 |
+| `max(cosine)` | settles it when everything is relevant | ≥ 0.60 |
+| single chunk cosine | trims off-topic chunks ranked below the top one out of the citations | ≥ 0.45 |
+| query term coverage (fallback with no vectors) | lexical backstop | ≥ 0.50 |
 
-两个查询级信号取**或**：任一成立即认为语料覆盖了问题；都不成立则返回空表，agent 据此置 `generalKnowledgeOnly=true`。
+The two query-level signals combine with **OR**: either one holding means the corpus covers the question; when neither holds the result is empty and the agent sets `generalKnowledgeOnly=true`.
 
-实测分布：正例的 `max − median` 最低 **0.319**，负例最高 **0.280**，没有重叠；`max` 上正例最低 0.589、负例最高 0.545。
+Measured distribution: true positives have a `max − median` floor of **0.319** and negatives peak at **0.280**, with no overlap; for `max`, true positives bottom out at 0.589 and negatives peak at 0.545.
 
-换向量模型或换语料后，这四个数必须重新量一遍再调阈值，不能直接沿用。
+After changing the embedding model or the corpus, all four numbers must be measured again before touching the thresholds; they cannot be reused as they are.
 
-### 4.2 score 的口径
+### 4.2 What score means
 
-`KnowledgeChunk.score` 是 RRF 融合分，归一化到 (0, 1]：在每一路都排第一的块得 1.0。
+`KnowledgeChunk.score` is the RRF fusion score normalized into (0, 1]: a chunk ranked first by every path scores 1.0.
 
-**已知局限，必须告知界面组**：只有一路（当前只有 BM25）时，归一化后的分数只反映名次，不反映匹配强度 —— top-3 会得到 1.000 / 0.984 / 0.968 这类几乎无差别的值。所以界面**不要把 score 当百分比展示**，它只能用来排序或标注“第几位”。两路都接入后（Day 4）才有真实区分度：两路都靠前的块接近 1.0，只在一路出现的块掉到 0.5 附近。
+**A known limitation the UI team must be told about**: with only one path (currently only BM25) the normalized score reflects rank only, not match strength — the top-3 come out as nearly indistinguishable values like 1.000 / 0.984 / 0.968. So the UI **must not show score as a percentage**; it can only order results or label "rank N". Real separation arrives once both paths are in (Day 4): a chunk near the top of both paths approaches 1.0, and a chunk on one path only drops to around 0.5.
 
-之所以不用 BM25 原始分当 score：它没有上界（可能是 0.5 也可能是 18），界面无法展示，也没法和语义分放在一起比较。
+Why the raw BM25 score is not used as the score: it has no upper bound (it may be 0.5 or 18), so the UI could not display it and it could not be compared with a semantic score.
 
-### 4.3 实测数据（2026-10-28，同济 AGI 平台）
+### 4.3 Measured data (2026-10-28, Tongji AGI platform)
 
-| 项 | 实测 |
+| Item | Measured |
 | --- | --- |
-| Base URL | `https://agi.tongji.edu.cn/v1`（OpenAI 兼容） |
-| 模型 | `Qwen3-Embedding`（平台另提供 `Qwen3-Reranker`，本期不用） |
-| 维度 | 默认 2560，传 `dimensions` 可降到 512 |
-| 归一化 | 返回向量已 L2 归一化（实测模长 1.0），余弦相似度即点积 |
-| 并发上限 | 套餐限制 2 个并发请求，超出返回 HTTP 429 `并发请求数已达套餐上限` |
-| 批大小 | 8 条/请求。16 条约 42 秒、32 条 180 秒不返回（2560 维时测），所以固定 8 |
-| 全量导入（218 块） | **2.3 秒**（512 维、批 8、2 并发）；导入 10 个课件实际耗时以 `docs` 下实测为准 |
-| 单次查询向量化 | **30–55 毫秒**（512 维、单条） |
+| Base URL | `https://agi.tongji.edu.cn/v1` (OpenAI-compatible) |
+| Model | `Qwen3-Embedding` (the platform also offers `Qwen3-Reranker`; not used this cycle) |
+| Dimensions | 2560 by default; passing `dimensions` lowers it to 512 |
+| Normalization | Returned vectors are already L2-normalized (magnitude measured at 1.0), so cosine similarity equals the dot product |
+| Concurrency limit | The plan allows 2 concurrent requests; beyond that returns HTTP 429, with the platform's own message meaning "concurrent request limit reached" |
+| Batch size | 8 inputs per request. 16 inputs take about 42 seconds and 32 return nothing after 180 seconds (measured at 2560 dimensions), so 8 is fixed |
+| Full import (218 chunks) | **2.3 seconds** (512 dimensions, batch 8, 2 concurrent); the real time to import the 10 decks is whatever is measured under `docs` |
+| Vectorizing one query | **30-55 milliseconds** (512 dimensions, single input) |
 
-因此导入实现为：批大小 8、最多 2 个并发请求（信号量，实测超了就是 429）、单请求超时 60 秒、429/5xx 退避重试 2 次。提问路径单独一条：**超时 5 秒**，失败即本次会话退回纯 BM25 并记日志，不再每次提问都去等超时。
+So the import implementation is: batch size 8, at most 2 concurrent requests (a semaphore, since exceeding it really does return 429), a 60 second per-request timeout, and backoff retries twice on 429/5xx. The question path is separate: **a 5 second timeout**, and on failure this session falls back to pure BM25 with a log entry instead of waiting for a timeout on every question.
 
-早期（2560 维）测出“8 条要 5–7 秒”，与后来 512 维的 2.3 秒/218 块差距很大：维度截断同时降低了存储与延迟，这是选 512 维的第二个理由。
+An early measurement at 2560 dimensions gave "5-7 seconds for 8 inputs", very different from the later 2.3 seconds per 218 chunks at 512 dimensions: truncating dimensions lowers storage and latency at the same time, which is the second reason for choosing 512.
 
-## 5. 评测
+## 5. Evaluation
 
-- **golden 集**：约 25 条英文问题，每条标注期望文档 + 页码，覆盖各个课件与“课件里确实没有”的负例。
-- **指标**：top-5 文档级命中率、页级命中率、MRR；负例看是否返回空表（决定 `generalKnowledgeOnly`）。
-- **单测**：BM25 与融合逻辑离线跑（不联网、确定性）；embedding 相关用环境变量 gate，缺失则跳过。
-- 数据进报告“RAG 的数据结构与检索”一节，也是演示时的证据。
+- **Golden set**: about 25 English questions, each annotated with the expected document plus page, covering each deck and negatives that the decks genuinely do not cover.
+- **Metrics**: document-level top-5 hit rate, page-level hit rate, MRR; negatives are checked for an empty result (which decides `generalKnowledgeOnly`).
+- **Unit tests**: BM25 and the fusion logic run offline (no network, deterministic); embedding-related tests are gated by environment variables and skipped when absent.
+- The data feeds the "RAG data structures and retrieval" section of the report and is evidence during the demo.
 
-### 5.1 golden 集结果（2026-10-30，218 块）
+### 5.1 Golden set results (2026-10-30, 218 chunks)
 
-`src/test/resources/golden/course-questions.tsv`：15 条正例（标注期望文档 + 页码，逐页核对过）+ 4 条负例（课件里确实没有）。`GoldenSetTest` 在配好 key 的机器上跑，CI 自动跳过。
+`src/test/resources/golden/course-questions.tsv`: 15 positives (annotated with the expected document plus page, each checked page by page) and 4 negatives (genuinely absent from the decks). `GoldenSetTest` runs on a machine with a key configured, and CI skips it.
 
-| 配置 | 页级 top-5 命中 | 负例漏出 |
+| Configuration | Page-level top-5 hits | Negatives leaked |
 | --- | --- | --- |
-| 只有绝对余弦阈值 0.50 | 与下面相当 | **4 条里漏 2 条** |
-| 纯 BM25 + 覆盖率闸门（无 key 时的形态） | 12/15 = 0.80 | 4 条里漏 1 条 |
-| **BM25 + 语义 + 相对闸门（正式形态）** | **14/15 = 0.93**（MRR 0.81） | **0 条** |
+| Absolute cosine threshold 0.50 only | comparable to the row below | **2 of 4 leaked** |
+| Pure BM25 plus coverage gate (the no-key shape) | 12/15 = 0.80 | 1 of 4 leaked |
+| **BM25 + semantics + relative gate (the shipped shape)** | **14/15 = 0.93** (MRR 0.81) | **0 leaked** |
 
-唯一没命中的是一条**误拒**：`How do I write a lambda expression for a comparator?` 返回空结果，而 Lec-3.3 p.2 就是《Lambda Expressions》。它的 `max` 0.576、`max−median` 0.245，都差一点点；但把它捞回来的代价是把 `How do I read a file line by line?`（0.550 / 0.277）和 `Angular vs React`（0.511 / 0.198）一起放进来——两者在数值上不可分。**这里选择了精确率而不是召回率**：宁可这一条回答“仅通用知识”，也不要给出错误引用。
+The only miss is a **false rejection**: `How do I write a lambda expression for a comparator?` returns an empty result, while Lec-3.3 p.2 is exactly "Lambda Expressions". Its `max` is 0.576 and its `max−median` is 0.245, both just short; but recovering it would also admit `How do I read a file line by line?` (0.550 / 0.277) and `Angular vs React` (0.511 / 0.198), which are numerically indistinguishable from it. **The choice here is precision over recall**: better to answer "general knowledge only" for this one than to cite the wrong page.
 
-要同时拿到两者，正确做法是加一层 reranker（平台已提供 `Qwen3-Reranker`）：先取 top-10 候选，再用交叉编码器打分。本期不做，列为改进方向。
+To get both, the right move is adding a reranker layer (the platform already offers `Qwen3-Reranker`): take the top-10 candidates first, then score them with a cross-encoder. Not done this cycle; recorded as an improvement direction.
 
-### 5.2 冒烟结果与 BM25 / 混合对比（2026-10-30，218 块）
+### 5.2 Smoke results and BM25 / hybrid comparison (2026-10-30, 218 chunks)
 
-同一批查询分别跑纯 BM25 与混合（BM25 + Qwen3-Embedding + RRF），下表是逐条核对过页面内容后的结论：
+The same queries were run through pure BM25 and through the hybrid (BM25 + Qwen3-Embedding + RRF); the table gives the conclusion after checking the page content of each hit by hand:
 
-| 查询 | 纯 BM25 top-1 | 混合 top-1 | 判断 |
+| Query | Pure BM25 top-1 | Hybrid top-1 | Verdict |
 | --- | --- | --- | --- |
-| `what happens when an exception is not caught` | Lec-4 p.23（AI 开发） | Lec-3.1 p.3，且前三名全在异常课件 | **混合明显更好** |
-| `how do I declare a class with fields and a constructor` | Lec-2 p.31（匿名类） | 仍是 p.31，但 p.2/p.3 变成 p.12（Point 类：字段 + 构造器）、p.6（Constructors） | **混合改善名次，没修好 top-1** |
-| `how do I declare a generic type parameter` | 第 3 名跑到反射课件 | 前三名全在泛型课件 | 混合更聚焦 |
-| `What does StringBuilder do and why is it faster?` | 第 2 名 Lec-5 p.17（无关） | 第 2 名 Lec-1 p.31（Strings） | 混合更好 |
-| `What does @BeforeEach do?` | 只有 1 条命中 | 3 条命中，全在 Lec-3.4 | 混合覆盖更全 |
-| `what is the difference between an interface and an abstract class` | 与混合完全一致 | 一致 | 无差别 |
+| `what happens when an exception is not caught` | Lec-4 p.23 (AI development) | Lec-3.1 p.3, and the top three are all in the exceptions deck | **Hybrid clearly better** |
+| `how do I declare a class with fields and a constructor` | Lec-2 p.31 (anonymous classes) | still p.31, but p.2/p.3 became p.12 (the Point class: fields + constructor) and p.6 (Constructors) | **Hybrid improved the ranks but did not fix top-1** |
+| `how do I declare a generic type parameter` | rank 3 landed in the reflection deck | the top three are all in the generics deck | Hybrid more focused |
+| `What does StringBuilder do and why is it faster?` | rank 2 was Lec-5 p.17 (irrelevant) | rank 2 was Lec-1 p.31 (Strings) | Hybrid better |
+| `What does @BeforeEach do?` | only 1 hit | 3 hits, all in Lec-3.4 | Hybrid covers more |
+| `what is the difference between an interface and an abstract class` | identical to hybrid | identical | No difference |
 
-两条必须记住的结论：
+Two conclusions to remember:
 
-1. **我在 Day 2 预测“embedding 能修好 constructor 那条”，没有兑现。** 它只把第 2、3 名换成了更相关的页，top-1 依旧是匿名类。词面重叠强的短查询，BM25 依然主导，这是 RRF 融合的正常表现，不能当作 bug 藏起来。
-2. **负例没有守住。** `how do I read a file line by line` 在全部课件里根本不存在（grep 确认无 `BufferedReader`/`readAllLines`/`FileReader`），但两路都返回了三条不相关页面，其中纯 BM25 的第一名是“Live Demo with TRAE”。这意味着**目前没有相关性闸门**：只要有一个词命中就会返回结果，agent 会拿无关页面当引用，作业要求里“检索不到就声明仅通用知识”那条实际上是失效的。
+1. **My Day 2 prediction that "embeddings will fix the constructor query" did not come true.** It only swapped ranks 2 and 3 for more relevant pages, and top-1 is still anonymous classes. For short queries with strong lexical overlap BM25 still dominates, which is normal RRF behavior and must not be hidden as a bug.
+2. **The negatives were not held.** `how do I read a file line by line` does not exist anywhere in the decks (grep confirms no `BufferedReader`/`readAllLines`/`FileReader`), yet both paths returned three irrelevant pages, with pure BM25 ranking "Live Demo with TRAE" first. That means **there was no relevance gate at that point**: a single matching term returns results, the agent cites irrelevant pages, and the assignment's "state general knowledge only when retrieval finds nothing" requirement was effectively broken.
 
-第 2 点是 Day 5（golden 集）必须解决的第一件事：给检索加一道门槛（例如命中词覆盖率和/或归一化分数下限），让“材料里没有”能真的返回空表。
+That second point was the first thing to fix on Day 5 (the golden set): add a threshold to retrieval (term coverage and/or a normalized score floor) so that "not in the material" really returns an empty result.
 
-## 6. 接线与线程
+## 6. Wiring and threads
 
 ```
-MentorJProjectService(Project)        ← 组装点，只接线
+MentorJProjectService(Project)        ← the assembly point, wiring only
   ├─ RagKnowledgeBase(.idea/mentorj-index.json)
-  ├─ RagDocumentLibrary(base, new DocumentProcessor())  → 界面组拿 DocumentLibrary
-  ├─ KnowledgeSearchTool(base)                          → 注册进 ToolRegistry
-  └─ AgentLoop(base, llm, prompts, tools)               → 界面组拿 AgentService
+  ├─ RagDocumentLibrary(base, new DocumentProcessor())  → the UI team gets DocumentLibrary
+  ├─ KnowledgeSearchTool(base)                          → registered into ToolRegistry
+  └─ AgentLoop(base, llm, prompts, tools)               → the UI team gets AgentService
 ```
 
-项目没有基础目录（默认项目 / light project）时索引路径为 `null`，知识库退化为纯内存，功能不变、重启才丢。
+When the project has no base directory (the default project / light project) the index path is `null`, the knowledge base degrades to in-memory only, behavior is unchanged, and it is lost only on restart.
 
-线程约定，两条都是硬的：
+Threading rules, both of them hard:
 
-1. **构造函数不碰磁盘。** 项目级 service 在 EDT 上实例化（首次 `getService`），所以索引在首次
-   `retrieve` / `statistics` 时才加载，且由 `synchronized` 保证只加载一次。
-2. **导入走后台线程。** `importDocuments` 会花几十秒（将来还要调 embedding），界面组负责放后台并
-   用 `ProgressListener` 回调进度；回调在导入线程上，更新 UI 要自己切回 EDT。
+1. **The constructor does not touch the disk.** The project-level service is created on the EDT (the first `getService`), so the index loads on the first
+   `retrieve` / `statistics`, and `synchronized` guarantees it loads once.
+2. **Import runs on a background thread.** `importDocuments` takes tens of seconds (and will also call the embedding service), so the UI team runs it in the background and
+   receives progress through `ProgressListener`; the callback happens on the import thread, and updating the UI means switching back to the EDT yourself.
 
-并发安全：写入（`index` / `clear` / `ensureLoaded`）互斥，读取用 volatile 快照，所以“后台导入 +
-侧边栏同时提问”不会读到半个索引。
+Concurrency safety: writes (`index` / `clear` / `ensureLoaded`) are mutually exclusive and reads use volatile snapshots, so "import in the background + a sidebar question at the same time" never reads half an index.
 
-失败降级：写盘失败 → 本次会话内存可用，日志告警；索引文件损坏 → 按空索引处理，日志告警，用户重新
-导入即可；单个文档解析失败 → 进 `ImportResult.failures()`，不影响其余文档。
+Failure degradation: a failed disk write → the index stays usable in memory for this session with a log warning; a corrupt index file → treated as an empty index with a log warning, and the user simply re-imports; a single document failing to parse → recorded in `ImportResult.failures()` without affecting the other documents.
 
-### 6.1 依赖与沙箱验证（2026-10-29）
+### 6.1 Dependencies and sandbox verification (2026-10-29)
 
-插件最终只带 **10 个 jar / 5.4 MB**。从 `tika-parser-pdf-module` 的传递依赖里排除了四组：
+The plugin ends up carrying only **10 jars / 5.4 MB**. Four groups were excluded from the transitive dependencies of `tika-parser-pdf-module`:
 
-| 排除的依赖 | 为什么能排 | 影响 |
+| Excluded dependency | Why it can go | Effect |
 | --- | --- | --- |
-| BouncyCastle（bcprov/bcpkix/bcutil/bcjmail） | 只用于签名 PDF 验签 | 与平台重复 **5700+** 个类，去掉后省约 9 MB |
-| `pdfbox-tools`、`picocli` | Tika 命令行工具用 | 抽取路径不碰 |
-| `commonmark` | Tika 解析 Markdown 用 | 本插件不解析 Markdown |
+| BouncyCastle (bcprov/bcpkix/bcutil/bcjmail) | only used to verify signed PDFs | duplicates **5700+** classes with the platform, so removing it saves about 9 MB |
+| `pdfbox-tools`, `picocli` | used by the Tika command line tool | the extraction path never touches them |
+| `commonmark` | used by Tika to parse Markdown | this plugin does not parse Markdown |
 
-排除是**实测**的，不是看文档猜的：用去掉这些 jar 的类路径把 `assets/` 全部 10 个 PDF 跑了一遍，仍然是 218 块、页码正常。
+The exclusions were **measured**, not guessed from documentation: all 10 PDFs under `assets/` were run through a classpath without those jars, and the result was still 218 chunks with correct page numbers.
 
-仍然重复但必须保留的三项（Tika/PDFBox 运行时要）：`slf4j-api`（54/56 个类与平台重复）、`commons-io`（370/429）、`commons-logging`（18/29）。插件类加载器优先用自己 jar 里的版本，这几个库版本稳定、接口向后兼容，风险可接受。
+Three duplicates must stay (Tika/PDFBox need them at runtime): `slf4j-api` (54 of 56 classes duplicate the platform), `commons-io` (370 of 429), `commons-logging` (18 of 29). The plugin class loader prefers the versions in its own jars, and these libraries have stable versions with backward-compatible interfaces, so the risk is acceptable.
 
-验证结果：
+Verification results:
 
-| 检查 | 结果 |
+| Check | Result |
 | --- | --- |
-| `./gradlew verifyPlugin`（IU-253.33813.55） | **Compatible**，无问题项 |
-| 沙箱 `runIde` 加载 | `Loaded custom plugins: MentorJ (1.0.0-SNAPSHOT)`，日志 **0 条 ERROR**，无 `NoClassDefFoundError` / `LinkageError` |
-| 沙箱内用插件自带的 10 个 jar 解析课件 | 10 个 PDF → 218 块 |
+| `./gradlew verifyPlugin` (IU-253.33813.55) | **Compatible**, no issues |
+| Sandbox `runIde` load | `Loaded custom plugins: MentorJ (1.0.0-SNAPSHOT)`, **0 ERROR** entries in the log, no `NoClassDefFoundError` / `LinkageError` |
+| Parsing the decks inside the sandbox with the plugin's own 10 jars | 10 PDFs → 218 chunks |
 
-**没验证到的**：沙箱里点开 tool window 与真实导入流程。原因是导入入口归界面组、目前还没实现；另外这台机器上 GUI 自动化（xdotool）的合成按键会落到用户自己开着的 IDE 上，不适合继续。等界面组做出入口后，演示前必须在沙箱里手点一遍：导入 `assets/` → 提问 → 看引用页码。
+**Not verified**: opening the tool window in the sandbox and the real import flow. The import entry point belongs to the UI team and did not exist yet; also, on this machine GUI automation (xdotool) sends synthesized keystrokes to the user's own running IDE, so it was not worth continuing. Once the UI team ships the entry point, click through it in the sandbox before the demo: import `assets/` → ask a question → check the cited page numbers.
 
-## 7. 已知限制
+## 7. Known limitations
 
-- 扫描版 PDF（无文本层）会解析出空文本，目前作为失败项上报，不做 OCR。
-- 中文提问检索英文课件召回显著偏低：不做翻译与改写（导入的材料语言未知，写死中→英是错误假设），此时如实降级为“仅通用知识”。
-- 索引不随仓库走，评审者 clone 后需要自备课件导入一次。
-- 没有增量索引：加一个文件也要全量重建（实测 2.3 秒，不再是负担）。
-- **闸门会误拒**：落在 0.55 余弦、差值 0.25 附近的查询会被判为“语料没讲”，例如 lambda/comparator 那条。上下浮动的是精确率与召回率的取舍，不是 bug。
-- **无 API key 时负例守不住**：只有覆盖率闸门时，`how do I read a file line by line` 因为 read/file/line 三个词都出现而拿到覆盖率 1.0，仍会返回无关页面。
-- 相关性阈值是语料相关的经验值，换语料或换向量模型必须重新测量（见 §4.1）。阈值还是**语料规模相关**的：无 key 时的覆盖率闸门按两百多块的真实课件调，放在 2 页的测试夹具上会把只命中 1/3 查询词的问题判成“没覆盖”。
+- A scanned PDF (no text layer) parses to empty text and is currently reported as a failure; there is no OCR.
+- A Chinese question against English decks retrieves noticeably less: there is no translation or rewriting (the imported material's language is unknown, so hardcoding Chinese-to-English would be a wrong premise), and in that case the answer honestly degrades to "general knowledge only".
+- The index does not ship with the repo, so a reviewer who clones still has to import the decks once.
+- There is no incremental indexing: adding one file means a full rebuild (measured at 2.3 seconds, no longer a burden).
+- **The gate falsely rejects**: a query around a 0.55 cosine with a 0.25 gap is judged as "the corpus does not cover this", as with the lambda/comparator query. What moves up and down is the precision/recall trade-off, not a bug.
+- **Without an API key the negatives are not held**: with the coverage gate alone, `how do I read a file line by line` reaches coverage 1.0 because read/file/line all appear, and still returns irrelevant pages.
+- The relevance thresholds are corpus-dependent empirical values; changing the corpus or the embedding model requires measuring them again (see §4.1). The thresholds also **depend on corpus size**: the no-key coverage gate was tuned against the real decks of over two hundred chunks, and on the 2-page test fixture it judges a query that hits only 1/3 of its terms as "not covered".

@@ -3,18 +3,18 @@ package edu.mentorj.api;
 import java.util.List;
 
 /**
- * LLM 调用接口，agent 核心组实现；与具体服务商及 UI 解耦。
+ * LLM call interface, implemented by the agent core team and decoupled from any specific provider and from the UI.
  */
 public interface LlmService {
 
-    /** 完成一轮对话；工具调用结果由调用方回填后再次调用。 */
+    /** Complete one conversation turn; tool call results are filled in by the caller before calling again. */
     Result complete(Request request);
 
     /**
-     * 完成一轮对话，并在服务端支持时回调正文增量。
+     * Complete one conversation turn and stream content increments when the server supports it.
      *
-     * <p>{@code listener} 在调用线程上被回调；默认实现退化为一次性返回，
-     * 保证旧实现与测试无需修改。
+     * <p>{@code listener} is called back on the calling thread; the default implementation degrades to a single
+     * return, so existing implementations and tests need no change.
      */
     default Result complete(Request request, StreamListener listener) {
         Result result = complete(request);
@@ -25,10 +25,10 @@ public interface LlmService {
     }
 
     /**
-     * 一条对话消息。
+     * One conversation message.
      *
-     * @param role    角色：system / user / assistant / tool
-     * @param content 消息正文
+     * @param role    role: system / user / assistant / tool
+     * @param content message body
      */
     record Message(String role, String content, List<ToolCall> toolCalls,
                    String toolCallId, String reasoningContent) {
@@ -61,38 +61,38 @@ public interface LlmService {
             return new Message("tool", content, List.of(), callId, null);
         }
 
-        /** 仅保留源码兼容；真实工具回填必须使用带 callId 的重载。 */
+        /** Kept for source compatibility only; a real tool result must use the overload that takes a callId. */
         public static Message tool(String content) {
             return new Message("tool", content);
         }
     }
 
     /**
-     * 提供给 LLM 的工具描述。
+     * A tool description given to the LLM.
      *
-     * @param name                工具名
-     * @param description         工具用途描述
-     * @param parametersJsonSchema 参数的 JSON Schema
+     * @param name                 tool name
+     * @param description          what the tool is for
+     * @param parametersJsonSchema JSON Schema of the parameters
      */
     record ToolSpec(String name, String description, String parametersJsonSchema) {
     }
 
     /**
-     * LLM 发起的一次工具调用。
+     * One tool call the LLM requested.
      *
-     * @param id            调用 id
-     * @param name          工具名
-     * @param argumentsJson 参数 JSON 文本
+     * @param id            call id
+     * @param name          tool name
+     * @param argumentsJson arguments as JSON text
      */
     record ToolCall(String id, String name, String argumentsJson) {
     }
 
     /**
-     * 一次 LLM 调用的入参。
+     * Input of one LLM call.
      *
-     * @param systemPrompt 系统提示词
-     * @param messages     对话消息，按时间顺序
-     * @param tools        可用工具，可为空表
+     * @param systemPrompt system prompt
+     * @param messages     conversation messages in chronological order
+     * @param tools        available tools; may be an empty list
      */
     record Request(String systemPrompt, List<Message> messages, List<ToolSpec> tools) {
         public Request {
@@ -102,10 +102,10 @@ public interface LlmService {
     }
 
     /**
-     * 一次 LLM 调用的结果。
+     * Result of one LLM call.
      *
-     * @param content   回答正文，可为空
-     * @param toolCalls 要执行的工具调用，无工具调用时为空表
+     * @param content   answer body; may be empty
+     * @param toolCalls tool calls to execute; an empty list when the model requested none
      */
     record Result(String content, List<ToolCall> toolCalls, String reasoningContent) {
         public Result {

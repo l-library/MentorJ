@@ -72,7 +72,7 @@ public class IndexStoreTest {
                 new KnowledgeChunk("a", "deck.pdf", "p.1", 0),
                 new KnowledgeChunk("b", "deck.pdf", "p.2", 0));
 
-        // 只给一条向量：按块号对不齐，宁可当作没有向量。
+        // Only one vector for two chunks: the indexes cannot line up, so treat the index as having none.
         IndexStore.write(file, chunks, List.of(new float[]{1f, 0f}), Instant.now());
 
         assertEquals(List.of(), IndexStore.read(file).vectors());

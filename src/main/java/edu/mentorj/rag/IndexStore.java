@@ -17,17 +17,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 索引文件的读写。
+ * Reading and writing the index file.
  *
- * <p>只存知识块，不存倒排表：全课程材料也只有两百多个块，启动时重建倒排是毫秒级，省掉一份会和
- * 知识块不一致的冗余结构。{@code version} 不匹配时丢弃旧索引，不做迁移。
+ * <p>Only chunks are stored, not the inverted index: the whole course material is a bit over two hundred
+ * chunks, so rebuilding the inverted index at startup takes milliseconds, which avoids a second structure
+ * that could drift out of step with the chunks. A mismatched {@code version} discards the old index instead
+ * of migrating it.
  */
 final class IndexStore {
 
-    /** 2 起带向量；读取仍接受 1（只有 BM25 的旧索引），写入一律写当前版本。 */
+    /** Version 2 onward carries vectors; reading still accepts 1 (an old BM25-only index), and writes always use
+     * the current version. */
     static final int VERSION = 2;
     private static final int OLDEST_SUPPORTED_VERSION = 1;
-    /** 向量保留 4 位小数：再精细对余弦排序没有影响，文件却能小一截。 */
+    /** Vectors keep 4 decimal places: more precision does not change cosine ordering, and the file gets much
+     * smaller. */
     private static final float VECTOR_PRECISION = 10_000f;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -36,7 +40,8 @@ final class IndexStore {
     }
 
     /**
-     * @param vectors 与 {@code chunks} 等长的向量；空表表示这次导入没有可用的向量
+     * @param vectors vectors with the same length as {@code chunks}; an empty list means this import produced
+     *                no usable vectors
      */
     static void write(Path file, List<KnowledgeChunk> chunks, List<float[]> vectors, Instant generatedAt)
             throws IOException {
@@ -63,8 +68,8 @@ final class IndexStore {
     }
 
     /**
-     * @return 索引里的知识块（{@code score} 为 0，检索时再算）与生成时间；文件不存在或版本不匹配时
-     *         返回空结果
+     * @return the chunks in the index ({@code score} is 0 and computed during retrieval) plus the generation time;
+     *         an empty result when the file is absent or the version does not match
      */
     static Loaded read(Path file) throws IOException {
         if (!Files.exists(file)) {
@@ -74,7 +79,7 @@ final class IndexStore {
         try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
             index = GSON.fromJson(reader, IndexFile.class);
         } catch (JsonSyntaxException e) {
-            throw new IOException(file.getFileName() + " 不是合法的索引文件", e);
+            throw new IOException(file.getFileName() + " is not a valid index file", e);
         }
         if (index == null || index.version < OLDEST_SUPPORTED_VERSION || index.version > VERSION
                 || index.chunks == null) {
@@ -91,7 +96,8 @@ final class IndexStore {
                 vectors.add(entry.vector);
             }
         }
-        // 向量必须是“全有”才能建语义排名：少一条就没法按块号对齐，宁可整体当作没有向量。
+        // Vectors must be all-or-nothing to build a semantic ranking: one missing vector breaks alignment by chunk
+        // index, so the whole index is better treated as having no vectors at all.
         return new Loaded(chunks, complete ? vectors : List.of(), parseInstant(index.generatedAt));
     }
 
@@ -111,7 +117,7 @@ final class IndexStore {
         return copy;
     }
 
-    /** 一次读取的结果；{@code vectors} 为空表示索引里没有向量（只读索引或旧索引）。 */
+    /** Result of one read; an empty {@code vectors} list means the index has no vectors (read-only or old index). */
     record Loaded(List<KnowledgeChunk> chunks, List<float[]> vectors, Instant generatedAt) {
 
         static final Loaded EMPTY = new Loaded(List.of(), List.of(), null);

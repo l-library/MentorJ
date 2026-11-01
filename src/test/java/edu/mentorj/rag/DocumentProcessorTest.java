@@ -17,8 +17,9 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * {@link DocumentProcessor} 的切块与清洗规则。夹具是两页已知文本的 PDF；页码清洗与二次切分的
- * 边界用构造输入覆盖，不依赖课件（课件不进仓库，CI 里没有）。
+ * {@link DocumentProcessor} chunking and cleaning rules. The fixture is a two-page PDF with known text; page
+ * number cleaning and the re-chunking boundaries are covered with constructed input, so the test does not
+ * depend on the lecture decks (they are not in the repo and CI does not have them).
  */
 public class DocumentProcessorTest {
 
@@ -49,9 +50,11 @@ public class DocumentProcessorTest {
     public void dropsStandaloneAndFooterPageNumbers() throws Exception {
         List<KnowledgeChunk> chunks = processor.process(fixture());
 
-        assertFalse("独占一行的页码必须删掉", List.of(chunks.get(0).text().split("\n")).contains("1"));
-        assertFalse("页脚里的页码必须删掉", chunks.get(1).text().contains("Tools and Scenarios 2"));
-        assertTrue("页脚的文字部分保留", chunks.get(1).text().contains("Tools and Scenarios"));
+        assertFalse("a page number alone on a line must be removed",
+                List.of(chunks.get(0).text().split("\n")).contains("1"));
+        assertFalse("a page number in the footer must be removed",
+                chunks.get(1).text().contains("Tools and Scenarios 2"));
+        assertTrue("the footer text itself is kept", chunks.get(1).text().contains("Tools and Scenarios"));
     }
 
     @Test
@@ -60,9 +63,9 @@ public class DocumentProcessorTest {
         Files.writeString(text, "not a pdf");
         try {
             processor.process(text);
-            fail("非 PDF 必须失败");
+            fail("a non-PDF must fail");
         } catch (DocumentProcessingException e) {
-            assertTrue(e.getMessage(), e.getMessage().contains("不支持的文件类型"));
+            assertTrue(e.getMessage(), e.getMessage().contains("unsupported file type"));
         } finally {
             Files.deleteIfExists(text);
         }
@@ -80,7 +83,7 @@ public class DocumentProcessorTest {
     public void keepsContentNumbersThatDoNotMatchThePage() {
         List<String> lines = List.of("4 Accept code only with JUnit evidence", "Java 21", "2");
 
-        assertEquals("与当前页号不同的数字不动",
+        assertEquals("a number different from the current page is left alone",
                 List.of("4 Accept code only with JUnit evidence", "Java 21", "2"),
                 DocumentProcessor.cleanPage(lines, 3));
     }
@@ -99,8 +102,8 @@ public class DocumentProcessorTest {
 
         assertEquals(2, chunks.size());
         assertEquals(7, chunks.get(0).split("\n").length);
-        assertTrue("上一块的末行带进下一块", chunks.get(1).startsWith(line + "\n"));
-        assertEquals("重叠段不能多出空行", 4, chunks.get(1).split("\n").length);
+        assertTrue("the previous chunk's last line carries into the next chunk", chunks.get(1).startsWith(line + "\n"));
+        assertEquals("the overlap must not add a blank line", 4, chunks.get(1).split("\n").length);
     }
 
     @Test
@@ -113,7 +116,7 @@ public class DocumentProcessorTest {
     }
 
     private static Path fixture() {
-        // 同 PdfExtractionTest：Windows 下 getPath() 带前导斜杠，必须走 URI。
+        // Same as PdfExtractionTest: on Windows getPath() carries a leading slash, so go through the URI.
         URL resource = Objects.requireNonNull(DocumentProcessorTest.class.getResource("/documents/two-pages.pdf"));
         try {
             return Path.of(resource.toURI());

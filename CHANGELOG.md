@@ -22,6 +22,7 @@
 
 ### Changed
 
+- Translate all user-facing Chinese into English: the UI message bundle, the teaching assistant prompts, hardcoded error and log messages, code comments and Javadoc, and the README, API, RAG design and UI guide documents. The teaching assistant now answers in English. `CONVENTION.md` keeps its original Chinese, and the CJK tokenizer tests keep their Chinese input because that is the behavior under test.
 - Sources, elapsed time and message actions now sit in a separate strip below each answer instead of inside the card, and the transcript measures rows at their actual width after a resize.
 
 - Replace the LLM placeholder and include file path and full source context in generation requests.

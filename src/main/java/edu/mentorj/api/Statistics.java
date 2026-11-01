@@ -4,11 +4,11 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * 索引现状。
+ * Current index state.
  *
- * @param documents 已索引的文档名，按名称排序
- * @param chunks    知识块总数
- * @param indexedAt 最近一次导入的时间；尚未导入时为 {@code null}
+ * @param documents names of the indexed documents, sorted by name
+ * @param chunks    total number of chunks
+ * @param indexedAt time of the most recent import; {@code null} before the first import
  */
 public record Statistics(List<String> documents, int chunks, Instant indexedAt) {
 }

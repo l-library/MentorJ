@@ -11,11 +11,13 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 采集 staged 改动：在项目根目录执行 {@code git diff --cached}，作为 {@code AgentRequest.stagedDiff}。
+ * Collect staged changes: run {@code git diff --cached} in the project root and use the output as
+ * {@code AgentRequest.stagedDiff}.
  *
- * <p>直接用命令行而不是 Git4Idea，避免给插件加一个 Git 插件的硬依赖；IDE 里的 Git 本来就来自同一个
- * 可执行文件，能提交代码的环境一定能跑这条命令。输出重定向到临时文件再读，避免管道缓冲区写满时死锁，
- * 并有超时兜底。
+ * <p>The command line is used directly instead of Git4Idea, so the plugin takes no hard dependency on a Git
+ * plugin; the IDE's own Git comes from the same executable, so any environment that can commit code can run
+ * this command. The output is redirected to a temporary file and read afterwards, which avoids a deadlock when
+ * the pipe buffer fills up, and a timeout is a backstop.
  */
 final class StagedDiff {
 
@@ -24,7 +26,8 @@ final class StagedDiff {
     private StagedDiff() {
     }
 
-    /** 采集结果：{@code failure} 非空表示失败，否则 {@code diff} 为改动正文（可能为空）。 */
+    /** Collection result: a non-null {@code failure} means it failed, otherwise {@code diff} holds the body
+     * (possibly empty). */
     record Outcome(@Nullable String diff, @Nullable String failure) {
 
         static Outcome of(String diff) {
@@ -74,7 +77,7 @@ final class StagedDiff {
         try {
             Files.deleteIfExists(path);
         } catch (IOException ignored) {
-            // 临时文件删不掉不影响本次结果。
+            // A temporary file that will not delete does not affect this result.
         }
     }
 }

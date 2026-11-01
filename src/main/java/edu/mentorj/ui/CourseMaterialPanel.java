@@ -31,11 +31,11 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * 课程材料入口：导入 PDF 建立索引、清空索引、显示索引现状。
+ * Course material entry point: import PDFs to build the index, clear it, and show the current index state.
  *
- * <p>{@link DocumentLibrary} 的导入、清空和统计都是阻塞调用，全部放后台线程；
- * {@link edu.mentorj.api.ProgressListener} 在导入线程被回调，这里自行切回 EDT。
- * 导入是全量重建，因此每次导入后都要刷新统计。
+ * <p>Import, clear and statistics on {@link DocumentLibrary} all block, so they all run on a background
+ * thread; {@link edu.mentorj.api.ProgressListener} is called back on the import thread, and this class
+ * switches back to the EDT itself. An import is a full rebuild, so the statistics refresh after every import.
  */
 final class CourseMaterialPanel extends JPanel {
 

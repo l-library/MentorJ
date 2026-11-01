@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 
-/** 工具注册表：各组注册 Tool 实现，agent 循环按 LLM 的工具调用执行它们。 */
+/** Tool registry: each team registers Tool implementations, and the agent loop runs them on the LLM's tool calls. */
 public final class ToolRegistry {
 
     private static final int MAX_OUTPUT_CHARS = 20_000;
@@ -27,7 +27,7 @@ public final class ToolRegistry {
         return tools.values().stream().map(Tool::spec).toList();
     }
 
-    /** 执行一次工具调用，工具报错时返回错误文本而不是中断循环。 */
+    /** Run one tool call; when the tool fails it returns error text instead of breaking the loop. */
     public String execute(LlmService.ToolCall call) {
         return executeWithSources(call).text();
     }

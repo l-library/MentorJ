@@ -129,10 +129,10 @@ final class MarkdownRenderer {
 
         private void renderImage(Node image) {
             HtmlWriter writer = context.getWriter();
-            writer.raw("<font color=\"" + codeStyle.label() + "\">[图片");
+            writer.raw("<font color=\"" + codeStyle.label() + "\">[Image");
             Node alt = image.getFirstChild();
             if (alt != null) {
-                writer.raw("：");
+                writer.raw(": ");
                 context.render(alt);
             }
             writer.raw("]</font>");

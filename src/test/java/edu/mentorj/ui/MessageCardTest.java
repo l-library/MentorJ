@@ -15,18 +15,20 @@ public class MessageCardTest extends BasePlatformTestCase {
 
     public void testHeightDependsOnWidth() {
         ApplicationManager.getApplication().invokeAndWait(() -> {
-            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "复制");
+            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "Copy");
             String text = """
-                    你可以这样提问，我能帮你更多，例如：
+                    Here are ways to ask that get you more from me:
 
-                    1. 概念类：如 Spring 的 IoC/DI、Bean 作用域、AOP 代理方式、
-                       事务传播行为、Spring Boot 自动配置原理等。
+                    1. Concepts: Spring IoC/DI, bean scopes, AOP proxying,
+                       transaction propagation, Spring Boot auto-configuration, and so on.
 
-                    2. 代码类：把报错信息、堆栈或相关代码贴出来（说明类名、依赖、
-                       JDK/框架版本），我按你选中的代码逐行分析原因。
+                    2. Code: paste the error message, stack trace, or the relevant code
+                       (with class names, dependencies and JDK/framework versions),
+                       and I will walk through the cause line by line against your selected code.
 
-                    3. 课程材料定位：告诉我关键词（如“事务传播”“自动配置”
-                       “JPA 映射”），我去课程材料里检索并标注来源文档与页码。
+                    3. Locating course material: give me keywords (such as "transaction
+                       propagation", "auto-configuration", "JPA mapping") and I will search
+                       the course material and cite the source document and page.
                     """;
             MessageCard wide = new MessageCard(new ChatMessage(ChatMessage.Role.ASSISTANT, text), renderer);
             MessageCard narrow = new MessageCard(new ChatMessage(ChatMessage.Role.ASSISTANT, text), renderer);
@@ -39,16 +41,17 @@ public class MessageCardTest extends BasePlatformTestCase {
 
     public void testUserBubbleStaysNarrowAndAssistantCardFillsTheRow() {
         ApplicationManager.getApplication().invokeAndWait(() -> {
-            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "复制");
+            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "Copy");
 
             MessageCard user = new MessageCard(
-                    new ChatMessage(ChatMessage.Role.USER, "什么是**封装**？"), renderer);
+                    new ChatMessage(ChatMessage.Role.USER, "What is **encapsulation**?"), renderer);
             Dimension userSize = user.measure(400);
             assertTrue(userSize.width > 0);
             assertTrue("user bubble must not fill the row", userSize.width <= 328);
             assertTrue(userSize.height > 0);
 
-            ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "封装是**隐藏实现**。");
+            ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT,
+                    "Encapsulation is **hiding the implementation**.");
             answer.done(answer.text(), List.of(new Citation("Lec-3.pdf", "P12-P14")), false);
             MessageCard assistant = new MessageCard(answer, renderer);
             Dimension answerSize = assistant.measure(400);
@@ -59,7 +62,7 @@ public class MessageCardTest extends BasePlatformTestCase {
 
     public void testCardDoesNotOwnSourcesOrActions() {
         ApplicationManager.getApplication().invokeAndWait(() -> {
-            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "复制");
+            MarkdownRenderer renderer = new MarkdownRenderer((code, language) -> List.of(), "Copy");
             ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "answer");
             answer.done("answer", List.of(new Citation("Lec-3.pdf", "P12")), false);
             MessageCard card = new MessageCard(answer, renderer);
