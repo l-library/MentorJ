@@ -6,7 +6,9 @@
 
 ### Added
 
+- MentorJ plugin icon (mortarboard over a speech bubble) shown in the plugin list, the sidebar tool window and the editor/Tools menu actions.
 - Streamed Chat Completions responses: text arrives as it is generated and tool calls are assembled from fragments, with an idle timeout, cancellation, and a `MENTORJ_LLM_STREAM` switch for incompatible gateways.
+- Sidebar answers rendered as Markdown message cards with streamed text, a stop button, citations and the general-knowledge notice, per-answer copy/regenerate, code-block copy/insert, editor-selection context, and restored local history.
 - Native Chat Completions tool calls with correlated results, bounded agent loops, and retrieved source aggregation.
 - Validated action inputs, JUnit and Conventional Commit prompts, cancellation handling, and context limits.
 - Configurable output token budget and regression tests for tool protocol, retrieval metadata, and agent isolation.
@@ -20,6 +22,8 @@
 
 ### Changed
 
+- Sources, elapsed time and message actions now sit in a separate strip below each answer instead of inside the card, and the transcript measures rows at their actual width after a resize.
+
 - Replace the LLM placeholder and include file path and full source context in generation requests.
 - Default to Tongji's `DeepSeek-V4.1-Flash` endpoint with configurable generation limits.
 - Fill in the `<vendor>` and `<description>` placeholders in `plugin.xml`.
@@ -27,6 +31,7 @@
 
 ### Fixed
 
+- Assistant cards no longer clip the end of an answer when the citation footer and action row appear below it.
 - Increase the default output budget from 1000 to 8192 tokens for course explanations and code examples.
 - Preserve partial text with a visible incomplete-answer notice instead of discarding it on length limits;
   continue rejecting truncated tool calls and reasoning-only output.

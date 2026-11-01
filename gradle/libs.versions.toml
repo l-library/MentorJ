@@ -1,9 +1,13 @@
 [versions]
 checkstyle = "14.3.0"
+commonmark = "0.31.0"
 junit = "4.13.2"
 tika = "4.1.0"
 
 [libraries]
+commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
+commonmark-strikethrough = { module = "org.commonmark:commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
 junit = { module = "junit:junit", version.ref = "junit" }
 # Tika 4 splits core from parsers; only the PDF parser module is needed.
 # The full tika-parsers-standard-package drags in dozens of transitives that

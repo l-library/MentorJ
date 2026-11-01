@@ -19,8 +19,13 @@ checkstyle {
 
 // Read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html
 dependencies {
+    // Course answers arrive as Markdown; the platform has no parser of its own.
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.tables)
+    implementation(libs.commonmark.strikethrough)
+
     implementation(libs.tika.core) {
-        // Tika core uses commonmark only for Markdown; nothing here parses Markdown.
+        // Tika core uses commonmark only for Markdown; the plugin declares its own copy for rendering.
         exclude(group = "org.commonmark")
     }
     implementation(libs.tika.pdf) {
