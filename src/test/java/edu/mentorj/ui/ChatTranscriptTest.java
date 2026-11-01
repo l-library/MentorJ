@@ -10,8 +10,8 @@ import java.awt.Container;
 import java.util.List;
 
 /**
- * Regression test for the assistant card being clipped when the answer finishes: the vertical scrollbar appears as
- * the text grows, and the card must recompute its height without a stale, wider layout.
+ * Regression test for the assistant answer being clipped while the sidebar is resized: rows must be measured at
+ * their actual width, and the sources below the card must not take space from the answer.
  */
 public class ChatTranscriptTest extends BasePlatformTestCase {
 
@@ -43,6 +43,16 @@ public class ChatTranscriptTest extends BasePlatformTestCase {
             JEditorPane body = find(transcript, JEditorPane.class);
             assertNotNull(body);
             assertTrue("body bounds " + body.getBounds() + ", body pref " + body.getPreferredSize(),
+                    body.getHeight() >= body.getPreferredSize().height);
+            MessageMeta meta = find(transcript, MessageMeta.class);
+            assertNotNull(meta);
+            assertTrue(meta.isVisible());
+            assertTrue("sources must have their own height", meta.getHeight() > 0);
+
+            // Resizing the sidebar used to leave one layout pass with the height measured at the old width.
+            transcript.setSize(380, 260);
+            layoutTwice(transcript);
+            assertTrue("body bounds after resize " + body.getBounds() + ", pref " + body.getPreferredSize(),
                     body.getHeight() >= body.getPreferredSize().height);
         });
     }

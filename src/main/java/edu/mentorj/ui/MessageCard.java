@@ -8,15 +8,12 @@ import com.intellij.util.ui.HTMLEditorKitBuilder;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import edu.mentorj.MentorJBundle;
-import edu.mentorj.api.Citation;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JPanel;
-import javax.swing.Timer;
 import javax.swing.text.View;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.event.HyperlinkEvent;
@@ -24,19 +21,15 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.FlowLayout;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.datatransfer.StringSelection;
-import java.awt.event.ActionListener;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
+import java.awt.datatransfer.StringSelection;
 import java.util.Map;
 import java.util.function.Consumer;
-import java.util.function.IntSupplier;
 
 /**
  * One visible message: a tinted bubble for the user, a bordered card for the assistant, and plain text for
@@ -46,40 +39,26 @@ final class MessageCard extends JPanel {
 
     private static final DateTimeFormatter TIME =
             DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault());
-    private static final int COPIED_MILLIS = 1500;
-
     private final ChatMessage message;
     private final MarkdownRenderer renderer;
-    private final IntSupplier widthSupplier;
     private final Consumer<String> insertCode;
-    private final JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
     private final int padH = JBUI.scale(10);
     private final int padV = JBUI.scale(8);
     private final int arc = JBUI.scale(12);
     private final JPanel header = new JPanel(new BorderLayout(6, 0));
-    private final JPanel footer = new JPanel();
     private final JPanel content = new JPanel();
-    private final JPanel south = new JPanel();
     private final JEditorPane body = new HtmlBody();
-    private final JBLabel status = new JBLabel();
 
     private Map<String, String> codeBlocks = Map.of();
-    private Dimension preferred;
-    private int cachedWidth = -1;
-    private String footerSignature;
-    private JButton retryAction;
 
-    MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer,
-                @NotNull IntSupplier widthSupplier) {
-        this(message, renderer, widthSupplier, null);
+    MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer) {
+        this(message, renderer, null);
     }
 
-    MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer,
-                @NotNull IntSupplier widthSupplier, Consumer<String> insertCode) {
+    MessageCard(@NotNull ChatMessage message, @NotNull MarkdownRenderer renderer, Consumer<String> insertCode) {
         super(new BorderLayout());
         this.message = message;
         this.renderer = renderer;
-        this.widthSupplier = widthSupplier;
         this.insertCode = insertCode;
         setOpaque(false);
 
@@ -95,27 +74,8 @@ final class MessageCard extends JPanel {
         configureBody();
         body.setAlignmentX(LEFT_ALIGNMENT);
         content.add(body);
-        content.add(Box.createVerticalStrut(JBUI.scale(4)));
-        footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
-        footer.setOpaque(false);
-        footer.setAlignmentX(LEFT_ALIGNMENT);
-        actions.setOpaque(false);
-        actions.setAlignmentX(LEFT_ALIGNMENT);
-        actions.setVisible(false);
-        if (message.role() == ChatMessage.Role.ASSISTANT) {
-            actions.add(actionButton(MentorJBundle.message("chat.copy"), event -> copyAnswer()));
-            actions.setVisible(true);
-        }
-        south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
-        south.setOpaque(false);
-        south.setAlignmentX(LEFT_ALIGNMENT);
-        south.add(footer);
-        south.add(actions);
-        content.add(south);
         add(content, BorderLayout.CENTER);
 
-        status.setFont(JBUI.Fonts.smallFont());
-        status.setForeground(ChatStyles.mutedText());
         refresh();
     }
 
@@ -129,10 +89,7 @@ final class MessageCard extends JPanel {
         }
         body.setForeground(foreground());
         body.setText(html);
-        refreshFooter();
-        preferred = null;
-        cachedWidth = -1;
-        // BoxLayout caches size requirements; invalidate the content chain after the body or footer changed.
+        // BoxLayout caches size requirements; invalidate after the body changed.
         content.revalidate();
         revalidate();
         repaint();
@@ -199,7 +156,6 @@ final class MessageCard extends JPanel {
             String code = codeBlocks.get(target.substring("copy:".length()));
             if (code != null) {
                 CopyPasteManager.getInstance().setContents(new StringSelection(code));
-                showCopied();
             }
             return;
         }
@@ -212,112 +168,6 @@ final class MessageCard extends JPanel {
         }
     }
 
-    /** Adds the regenerate button to the newest answer; older cards have it removed by the transcript. */
-    void setRetryAction(JButton button) {
-        if (retryAction != null) {
-            actions.remove(retryAction);
-            retryAction = null;
-        }
-        if (button != null) {
-            retryAction = button;
-            actions.add(button);
-        }
-        actions.setVisible(actions.getComponentCount() > 0);
-        preferred = null;
-        cachedWidth = -1;
-        content.revalidate();
-        revalidate();
-        repaint();
-    }
-
-    private void copyAnswer() {
-        CopyPasteManager.getInstance().setContents(new StringSelection(message.text()));
-        showCopied();
-    }
-
-    private static JButton actionButton(String text, ActionListener listener) {
-        JButton button = new JButton(text);
-        button.setBorderPainted(false);
-        button.setContentAreaFilled(false);
-        button.setFocusPainted(false);
-        button.setForeground(ChatStyles.link());
-        button.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
-        button.addActionListener(listener);
-        return button;
-    }
-
-    private void showCopied() {
-        status.setText(MentorJBundle.message("chat.copied"));
-        footerSignature = null;
-        refreshFooter();
-        Timer timer = new Timer(COPIED_MILLIS, event -> {
-            status.setText("");
-            footerSignature = null;
-            refreshFooter();
-        });
-        timer.setRepeats(false);
-        timer.start();
-    }
-
-    private void refreshFooter() {
-        String signature = message.citations() + "|" + message.generalKnowledgeOnly() + "|"
-                + message.state() + "|" + message.elapsedMillis() + "|" + status.getText();
-        if (signature.equals(footerSignature)) {
-            return;
-        }
-        footerSignature = signature;
-        footer.removeAll();
-        List<Citation> citations = message.citations();
-        if (!citations.isEmpty()) {
-            StringBuilder text = new StringBuilder("<html>")
-                    .append(ChatStyles.escapeHtml(MentorJBundle.message("response.citationsTitle")));
-            for (Citation citation : citations) {
-                text.append("<br>").append(ChatStyles.escapeHtml(MentorJBundle.message(
-                        "response.citationItem", citation.document(), citation.pageOrScope())));
-            }
-            JBLabel label = new JBLabel(text.append("</html>").toString());
-            label.setFont(JBUI.Fonts.smallFont());
-            label.setForeground(ChatStyles.mutedText());
-            alignFooterLabel(label);
-            footer.add(label);
-        }
-        if (message.generalKnowledgeOnly()) {
-            JBLabel notice = new JBLabel("<html>"
-                    + ChatStyles.escapeHtml(MentorJBundle.message("toolwindow.generalKnowledgeNotice"))
-                    + "</html>");
-            notice.setFont(JBUI.Fonts.smallFont());
-            notice.setForeground(ChatStyles.mutedText());
-            alignFooterLabel(notice);
-            footer.add(notice);
-        }
-        if (message.state() == ChatMessage.State.CANCELLED) {
-            JBLabel cancelled = new JBLabel(MentorJBundle.message("chat.cancelled"));
-            cancelled.setFont(JBUI.Fonts.smallFont());
-            cancelled.setForeground(ChatStyles.mutedText());
-            alignFooterLabel(cancelled);
-            footer.add(cancelled);
-        }
-        if (message.elapsedMillis() >= 0) {
-            JBLabel elapsed = new JBLabel(MentorJBundle.message("chat.elapsed",
-                    String.format(java.util.Locale.ROOT, "%.1f", message.elapsedMillis() / 1000.0)));
-            elapsed.setFont(JBUI.Fonts.smallFont());
-            elapsed.setForeground(ChatStyles.mutedText());
-            alignFooterLabel(elapsed);
-            footer.add(elapsed);
-        }
-        if (!status.getText().isBlank()) {
-            alignFooterLabel(status);
-            footer.add(status);
-        }
-        footer.revalidate();
-        footer.repaint();
-    }
-
-    private boolean isError() {
-        return message.role() == ChatMessage.Role.ERROR || message.state() == ChatMessage.State.FAILED;
-    }
-
-    /** Height at the actual width, independent of the editor pane's content-based preferred width. */
     private static final class HtmlBody extends JEditorPane {
         @Override
         public Dimension getPreferredSize() {
@@ -333,6 +183,10 @@ final class MessageCard extends JPanel {
     private static void alignFooterLabel(JBLabel label) {
         label.setAlignmentX(LEFT_ALIGNMENT);
         label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
+    }
+
+    private boolean isError() {
+        return message.role() == ChatMessage.Role.ERROR || message.state() == ChatMessage.State.FAILED;
     }
 
     private Color foreground() {
@@ -364,23 +218,26 @@ final class MessageCard extends JPanel {
         };
     }
 
-    @Override
-    public Dimension getPreferredSize() {
-        int available = Math.max(220, widthSupplier.getAsInt());
-        if (preferred != null && cachedWidth == available) {
-            return preferred;
-        }
+    /**
+     * Measures the card for a width chosen by the transcript. The body is given that width before its height is read,
+     * so no stale width can leak into the layout after a resize.
+     */
+    Dimension measure(int available) {
         int maxWidth = message.role() == ChatMessage.Role.USER
                 ? Math.max(180, (int) (available * 0.82)) : available;
         int cardWidth = message.role() == ChatMessage.Role.USER
                 ? Math.min(maxWidth, Math.max(160, naturalWidth() + 2 * padH)) : maxWidth;
         int inner = Math.max(100, cardWidth - 2 * padH);
         body.setSize(new Dimension(inner, Short.MAX_VALUE));
-        // The vertical box and the card share the same preferred heights, so the footer cannot shrink the body.
+        // The body width changed, so BoxLayout's cached size requirements are stale.
+        content.invalidate();
         int height = content.getPreferredSize().height;
-        preferred = new Dimension(cardWidth, Math.max(JBUI.scale(36), height));
-        cachedWidth = available;
-        return preferred;
+        return new Dimension(cardWidth, Math.max(JBUI.scale(36), height));
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        return measure(getWidth() > 0 ? getWidth() : 320);
     }
 
     private int naturalWidth() {
