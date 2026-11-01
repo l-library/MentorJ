@@ -11,11 +11,13 @@ import edu.mentorj.MentorJBundle;
 import edu.mentorj.api.Citation;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JEditorPane;
 import javax.swing.JPanel;
 import javax.swing.Timer;
+import javax.swing.text.View;
 import javax.swing.text.html.HTMLEditorKit;
 import javax.swing.event.HyperlinkEvent;
 import java.awt.BorderLayout;
@@ -56,7 +58,9 @@ final class MessageCard extends JPanel {
     private final int arc = JBUI.scale(12);
     private final JPanel header = new JPanel(new BorderLayout(6, 0));
     private final JPanel footer = new JPanel();
-    private final JEditorPane body = new JEditorPane();
+    private final JPanel content = new JPanel();
+    private final JPanel south = new JPanel();
+    private final JEditorPane body = new HtmlBody();
     private final JBLabel status = new JBLabel();
 
     private Map<String, String> codeBlocks = Map.of();
@@ -79,28 +83,35 @@ final class MessageCard extends JPanel {
         this.insertCode = insertCode;
         setOpaque(false);
 
-        JPanel content = new JPanel(new BorderLayout(0, JBUI.scale(4)));
         content.setOpaque(false);
         content.setBorder(JBUI.Borders.empty(padV, padH));
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         if (showHeader()) {
-            content.add(createHeader(), BorderLayout.NORTH);
+            JPanel headerPanel = createHeader();
+            headerPanel.setAlignmentX(LEFT_ALIGNMENT);
+            content.add(headerPanel);
+            content.add(Box.createVerticalStrut(JBUI.scale(4)));
         }
         configureBody();
-        content.add(body, BorderLayout.CENTER);
+        body.setAlignmentX(LEFT_ALIGNMENT);
+        content.add(body);
+        content.add(Box.createVerticalStrut(JBUI.scale(4)));
         footer.setLayout(new BoxLayout(footer, BoxLayout.Y_AXIS));
         footer.setOpaque(false);
+        footer.setAlignmentX(LEFT_ALIGNMENT);
         actions.setOpaque(false);
+        actions.setAlignmentX(LEFT_ALIGNMENT);
         actions.setVisible(false);
         if (message.role() == ChatMessage.Role.ASSISTANT) {
             actions.add(actionButton(MentorJBundle.message("chat.copy"), event -> copyAnswer()));
             actions.setVisible(true);
         }
-        JPanel south = new JPanel();
         south.setLayout(new BoxLayout(south, BoxLayout.Y_AXIS));
         south.setOpaque(false);
+        south.setAlignmentX(LEFT_ALIGNMENT);
         south.add(footer);
         south.add(actions);
-        content.add(south, BorderLayout.SOUTH);
+        content.add(south);
         add(content, BorderLayout.CENTER);
 
         status.setFont(JBUI.Fonts.smallFont());
@@ -121,6 +132,8 @@ final class MessageCard extends JPanel {
         refreshFooter();
         preferred = null;
         cachedWidth = -1;
+        // BoxLayout caches size requirements; invalidate the content chain after the body or footer changed.
+        content.revalidate();
         revalidate();
         repaint();
     }
@@ -160,6 +173,7 @@ final class MessageCard extends JPanel {
         body.setOpaque(false);
         body.setBorder(JBUI.Borders.empty());
         body.setFont(UIUtil.getLabelFont());
+        body.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         body.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         HTMLEditorKit kit = (HTMLEditorKit) body.getEditorKit();
         kit.getStyleSheet().addRule(ChatStyles.css());
@@ -211,6 +225,7 @@ final class MessageCard extends JPanel {
         actions.setVisible(actions.getComponentCount() > 0);
         preferred = null;
         cachedWidth = -1;
+        content.revalidate();
         revalidate();
         repaint();
     }
@@ -263,6 +278,7 @@ final class MessageCard extends JPanel {
             JBLabel label = new JBLabel(text.append("</html>").toString());
             label.setFont(JBUI.Fonts.smallFont());
             label.setForeground(ChatStyles.mutedText());
+            alignFooterLabel(label);
             footer.add(label);
         }
         if (message.generalKnowledgeOnly()) {
@@ -271,12 +287,14 @@ final class MessageCard extends JPanel {
                     + "</html>");
             notice.setFont(JBUI.Fonts.smallFont());
             notice.setForeground(ChatStyles.mutedText());
+            alignFooterLabel(notice);
             footer.add(notice);
         }
         if (message.state() == ChatMessage.State.CANCELLED) {
             JBLabel cancelled = new JBLabel(MentorJBundle.message("chat.cancelled"));
             cancelled.setFont(JBUI.Fonts.smallFont());
             cancelled.setForeground(ChatStyles.mutedText());
+            alignFooterLabel(cancelled);
             footer.add(cancelled);
         }
         if (message.elapsedMillis() >= 0) {
@@ -284,9 +302,11 @@ final class MessageCard extends JPanel {
                     String.format(java.util.Locale.ROOT, "%.1f", message.elapsedMillis() / 1000.0)));
             elapsed.setFont(JBUI.Fonts.smallFont());
             elapsed.setForeground(ChatStyles.mutedText());
+            alignFooterLabel(elapsed);
             footer.add(elapsed);
         }
         if (!status.getText().isBlank()) {
+            alignFooterLabel(status);
             footer.add(status);
         }
         footer.revalidate();
@@ -295,6 +315,24 @@ final class MessageCard extends JPanel {
 
     private boolean isError() {
         return message.role() == ChatMessage.Role.ERROR || message.state() == ChatMessage.State.FAILED;
+    }
+
+    /** Height at the actual width, independent of the editor pane's content-based preferred width. */
+    private static final class HtmlBody extends JEditorPane {
+        @Override
+        public Dimension getPreferredSize() {
+            if (getUI() == null || getWidth() <= 0) {
+                return super.getPreferredSize();
+            }
+            View root = getUI().getRootView(this);
+            root.setSize(getWidth(), Integer.MAX_VALUE);
+            return new Dimension(getWidth(), (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS)));
+        }
+    }
+
+    private static void alignFooterLabel(JBLabel label) {
+        label.setAlignmentX(LEFT_ALIGNMENT);
+        label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
     }
 
     private Color foreground() {
@@ -338,16 +376,8 @@ final class MessageCard extends JPanel {
                 ? Math.min(maxWidth, Math.max(160, naturalWidth() + 2 * padH)) : maxWidth;
         int inner = Math.max(100, cardWidth - 2 * padH);
         body.setSize(new Dimension(inner, Short.MAX_VALUE));
-        int height = body.getPreferredSize().height + 2 * padV;
-        if (showHeader()) {
-            height += header.getPreferredSize().height + JBUI.scale(4);
-        }
-        if (footer.getComponentCount() > 0) {
-            height += footer.getPreferredSize().height + JBUI.scale(4);
-        }
-        if (actions.isVisible() && actions.getComponentCount() > 0) {
-            height += actions.getPreferredSize().height + JBUI.scale(4);
-        }
+        // The vertical box and the card share the same preferred heights, so the footer cannot shrink the body.
+        int height = content.getPreferredSize().height;
         preferred = new Dimension(cardWidth, Math.max(JBUI.scale(36), height));
         cachedWidth = available;
         return preferred;

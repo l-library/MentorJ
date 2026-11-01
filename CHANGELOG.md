@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- Assistant cards no longer clip the end of an answer when the citation footer and action row appear below it.
 - Increase the default output budget from 1000 to 8192 tokens for course explanations and code examples.
 - Preserve partial text with a visible incomplete-answer notice instead of discarding it on length limits;
   continue rejecting truncated tool calls and reasoning-only output.
