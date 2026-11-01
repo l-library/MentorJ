@@ -197,6 +197,11 @@ This branch implements the following additions for the agent completion task whi
   The old `Message.tool(text)` stays for source compatibility, but it lacks an ID and a real adapter refuses to send it.
 - `Result(content, toolCalls, reasoningContent)`: the two-argument constructor is kept; a result without tool calls must have a non-empty body.
   `reasoningContent` is only for protocol round trips and is never shown to the user.
+- `Request(systemPrompt, messages, tools, thinking)`: the three-argument constructor is kept and allows reasoning. `thinking = false` asks the service to turn the
+  model's reasoning pass off for that call; the client sends it as `chat_template_kwargs: {"thinking": false}`, the only form the Tongji gateway honours, and only
+  when the flag is false, so a stricter gateway never receives the field. The agent core sets it for the three smart actions and leaves it on for `ASK`.
+- Reasoning text is read from `reasoning_content` or, when a gateway names the field differently, from a string `reasoning` delta. Either one fills
+  `Result.reasoningContent`; a non-string `reasoning` value is ignored rather than failing the call, because that field has no contract.
 - `Request`, `Message`, `Result` and `ExecutionResult` take immutable copies of their lists, and the lists may not be null.
 - `Tool.executeWithSources` returns the body plus structured sources; an old tool that returns only a string keeps working but produces no citations.
   Each tool validates its own parameter fields. Output for a failure or an empty result carries no sources.

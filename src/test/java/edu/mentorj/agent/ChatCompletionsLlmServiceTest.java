@@ -8,6 +8,7 @@ import edu.mentorj.api.AgentAction;
 import edu.mentorj.api.AgentRequest;
 import edu.mentorj.api.AgentResponse;
 import edu.mentorj.api.Citation;
+import edu.mentorj.api.EditorContext;
 import edu.mentorj.api.KnowledgeChunk;
 import edu.mentorj.api.LlmService;
 import edu.mentorj.api.StreamListener;
@@ -247,6 +248,46 @@ public class ChatCompletionsLlmServiceTest {
         assertThrows(LlmException.class, () -> service(Duration.ofSeconds(5)).complete(request));
     }
 
+    @Test
+    public void asksForTheReasoningPassToBeOffOnlyWhenTheCallerSaysSo() {
+        service(Duration.ofSeconds(5)).complete(request());
+        assertNull(received.get().get("chat_template_kwargs"));
+
+        LlmService.Request direct = new LlmService.Request(
+                "TA", List.of(LlmService.Message.user("scenario")), List.of(), false);
+        service(Duration.ofSeconds(5)).complete(direct);
+        JsonObject templateArguments = received.get().getAsJsonObject("chat_template_kwargs");
+        assertFalse(templateArguments.get("thinking").getAsBoolean());
+    }
+
+    @Test
+    public void readsReasoningFromEitherFieldNameWithoutShowingItAsAnswerText() {
+        contentType = "text/event-stream";
+        response = sse(
+                event(reasoningDelta("the user wants ")),
+                event(reasoningDelta("a throw case")),
+                contentEvent("class UserStoreTest {}"),
+                finishEvent("stop"));
+        List<String> deltas = new ArrayList<>();
+        LlmService.Result result = service(Duration.ofSeconds(5)).complete(request(), deltas::add);
+        assertEquals("the user wants a throw case", result.reasoningContent());
+        assertEquals(List.of("class UserStoreTest {}"), deltas);
+        assertEquals("class UserStoreTest {}", result.content());
+    }
+
+    @Test
+    public void theThreeSmartActionsDisableReasoningWhileAQuestionKeepsIt() {
+        AgentLoop agent = new AgentLoop((query, topK) -> List.of(), service(Duration.ofSeconds(5)),
+                new SystemPromptBuilder(), new ToolRegistry());
+        EditorContext code = new EditorContext("UserStore.java", "class UserStore {}", "class UserStore {}");
+
+        agent.respond(new AgentRequest(AgentAction.CREATIVE, null, code, null));
+        assertFalse(received.get().getAsJsonObject("chat_template_kwargs").get("thinking").getAsBoolean());
+
+        agent.respond(new AgentRequest(AgentAction.ASK, "what is a lambda", null, null));
+        assertNull(received.get().get("chat_template_kwargs"));
+    }
+
     private static String sse(String... events) {
         StringBuilder body = new StringBuilder();
         for (String event : events) {
@@ -262,6 +303,12 @@ public class ChatCompletionsLlmServiceTest {
     private static JsonObject textDelta(String text) {
         JsonObject delta = new JsonObject();
         delta.addProperty("content", text);
+        return delta;
+    }
+
+    private static JsonObject reasoningDelta(String text) {
+        JsonObject delta = new JsonObject();
+        delta.addProperty("reasoning", text);
         return delta;
     }
 

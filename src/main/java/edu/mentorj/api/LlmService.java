@@ -93,11 +93,17 @@ public interface LlmService {
      * @param systemPrompt system prompt
      * @param messages     conversation messages in chronological order
      * @param tools        available tools; may be an empty list
+     * @param thinking     whether the model may reason before answering; false asks the service to turn that
+     *                     pass off, so the answer does not wait for deliberation the caller never shows
      */
-    record Request(String systemPrompt, List<Message> messages, List<ToolSpec> tools) {
+    record Request(String systemPrompt, List<Message> messages, List<ToolSpec> tools, boolean thinking) {
         public Request {
             messages = List.copyOf(messages);
             tools = List.copyOf(tools);
+        }
+
+        public Request(String systemPrompt, List<Message> messages, List<ToolSpec> tools) {
+            this(systemPrompt, messages, tools, true);
         }
     }
 

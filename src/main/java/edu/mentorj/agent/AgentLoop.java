@@ -216,8 +216,10 @@ public final class AgentLoop implements AgentService {
                     + "already have, "
                     + "state clearly what is still missing, and do not call any more tools.\n";
         }
+        // A question is worth reasoning about; the three smart actions only need the artefact, so their
+        // answer does not wait for a deliberation pass the interface never shows.
         return llmService.complete(new LlmService.Request(
-                prompt, messages, tools), listener);
+                prompt, messages, tools, request.action() == AgentAction.ASK), listener);
     }
 
     private String userPrompt(AgentRequest request, Retrieved retrieved) {

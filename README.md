@@ -85,7 +85,9 @@ The agent core is implemented:
 
 The native tool protocol is verified against a local mock service; the Tongji gateway's tool-calling support for
 `DeepSeek-V4.1-Flash` still needs a joint test with a real key, since a text example does not prove that a gateway supports tools. The adapter keeps the service's
-`reasoning_content` for the following tool round without displaying it; see
+reasoning for the following tool round without displaying it, reading it from `reasoning_content` or from the `reasoning` delta this gateway sends. The three
+smart actions ask for that pass to be off with `chat_template_kwargs: {"thinking": false}`, so a generated test, commit message or exercise is not delayed by
+deliberation the interface never shows, while a question still allows one; see
 [DeepSeek tool calling](https://api-docs.deepseek.com/guides/thinking_mode/#tool-calls).
 The shared interface extension keeps the old constructors and string tool methods; see [API.md](API.md) for the change notes and the joint-review items.
 
