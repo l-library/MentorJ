@@ -49,7 +49,7 @@ final class MessageCard extends JPanel {
     private final int arc = JBUI.scale(12);
     private final JPanel header = new JPanel(new BorderLayout(6, 0));
     private final JPanel content = new JPanel();
-    private final JEditorPane body = new HtmlBody();
+    private final HtmlBody body = new HtmlBody();
 
     private Map<String, String> codeBlocks = Map.of();
 
@@ -94,6 +94,7 @@ final class MessageCard extends JPanel {
         }
         body.setForeground(foreground());
         body.setText(html);
+        body.resetMeasurement();
         // BoxLayout caches size requirements; invalidate after the body changed.
         content.revalidate();
         revalidate();
@@ -174,14 +175,39 @@ final class MessageCard extends JPanel {
     }
 
     private static final class HtmlBody extends JEditorPane {
+
+        private int measuredWidth = -1;
+        private int measuredHeight = -1;
+
         @Override
         public Dimension getPreferredSize() {
             if (getUI() == null || getWidth() <= 0) {
                 return super.getPreferredSize();
             }
-            View root = getUI().getRootView(this);
-            root.setSize(getWidth(), Integer.MAX_VALUE);
-            return new Dimension(getWidth(), (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS)));
+            int width = getWidth();
+            if (width != measuredWidth) {
+                View root = getUI().getRootView(this);
+                root.setSize(width, Short.MAX_VALUE);
+                measuredHeight = Math.max(1, (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS)));
+                // Leave the view at the height it will be painted at. FlowView reports a preference change, which
+                // reaches revalidate() and repaint(), whenever it is laid out at a height other than the one its
+                // content needs; measuring at an open height and leaving it there re-queued layout and painting for
+                // as long as the sidebar stayed visible.
+                root.setSize(width, measuredHeight);
+                measuredWidth = width;
+            }
+            return new Dimension(width, measuredHeight);
+        }
+
+        /** The text or the fonts changed, so the height measured for the last width is stale. */
+        void resetMeasurement() {
+            measuredWidth = -1;
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            measuredWidth = -1;
         }
     }
 
