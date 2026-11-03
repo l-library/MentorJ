@@ -6,6 +6,8 @@ import com.intellij.ui.scale.JBUIScale;
 import edu.mentorj.api.Citation;
 
 import javax.swing.JEditorPane;
+import javax.swing.text.BoxView;
+import javax.swing.text.View;
 import java.awt.Component;
 import java.awt.Container;
 import java.util.List;
@@ -15,6 +17,26 @@ import java.util.List;
  * their actual width, and the sources below the card must not take space from the answer.
  */
 public class ChatTranscriptTest extends BasePlatformTestCase {
+
+    private static final String ANSWER = """
+            ## Short answer
+
+            - A **superclass** is the class being inherited *from*: it supplies fields, methods and nested classes to
+              its descendants.
+            - A **subclass** is declared with `extends` and inherits those members, then reuses, replaces or
+              supplements them.
+
+            ```java
+            class Animal {
+                void speak() { System.out.println("..."); }
+            }
+            class Dog extends Animal {
+                @Override void speak() { System.out.println("Woof"); }
+            }
+            ```
+
+            Source: *Lec-2-OOP-with-Java.pdf*, p.19-20.
+            """;
 
     public void testScrollbarAppearanceDoesNotClipCompletedAnswer() {
         ApplicationManager.getApplication().invokeAndWait(() -> {
@@ -64,6 +86,50 @@ public class ChatTranscriptTest extends BasePlatformTestCase {
             assertTrue("body bounds after resize " + body.getBounds() + ", pref " + body.getPreferredSize(),
                     body.getHeight() >= body.getPreferredSize().height);
         });
+    }
+
+    /**
+     * The sidebar used to keep the EDT busy for as long as the tool window stayed visible: measuring a card laid the
+     * HTML view out at an open height and left it there, and FlowView reports a preference change, which reaches
+     * revalidate() and repaint(), whenever it is laid out at a height other than the one its content needs, so layout
+     * and painting re-queued each other instead of settling. The view has to rest at the height it needs.
+     */
+    public void testMeasuredBodyRestsAtItsContentHeight() {
+        ApplicationManager.getApplication().invokeAndWait(() -> {
+            ChatTranscript transcript = new ChatTranscript(
+                    new MarkdownRenderer((code, language) -> List.of(), "Copy"));
+            transcript.setSize(520, 260);
+            ChatMessage answer = new ChatMessage(ChatMessage.Role.ASSISTANT, "");
+            answer.done(ANSWER, List.of(), false);
+            transcript.add(answer);
+            transcript.refresh(answer);
+            layoutTwice(transcript);
+
+            JEditorPane body = find(transcript, JEditorPane.class);
+            assertNotNull(body);
+            BoxView view = contentView(body);
+            assertEquals("the view must rest at the height its content needs",
+                    (int) Math.ceil(view.getPreferredSpan(View.Y_AXIS)), view.getHeight());
+
+            int measured = body.getPreferredSize().height;
+            answer.text(ANSWER + "\n\n" + ANSWER + "\n\n" + ANSWER);
+            transcript.refresh(answer);
+            layoutTwice(transcript);
+            assertTrue("height must follow the text, was " + measured + " now " + body.getPreferredSize().height,
+                    body.getPreferredSize().height > measured);
+
+            transcript.setSize(360, 260);
+            layoutTwice(transcript);
+            assertEquals("the view must rest at the height its content needs after a resize",
+                    (int) Math.ceil(contentView(body).getPreferredSpan(View.Y_AXIS)),
+                    contentView(body).getHeight());
+        });
+    }
+
+    private static BoxView contentView(JEditorPane body) {
+        View root = body.getUI().getRootView(body);
+        assertEquals(1, root.getViewCount());
+        return (BoxView) root.getView(0);
     }
 
     /**
